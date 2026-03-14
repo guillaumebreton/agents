@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"notb.re/agent/internal/multiplexer"
+	"notb.re/agents/internal/multiplexer"
 )
 
 const sessionName = "agents"

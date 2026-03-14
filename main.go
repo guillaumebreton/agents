@@ -1,6 +1,6 @@
 package main
 
-import "notb.re/agent/cmd"
+import "notb.re/agents/cmd"
 
 func main() {
 	cmd.Execute()

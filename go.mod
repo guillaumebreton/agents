@@ -1,4 +1,4 @@
-module notb.re/agent
+module notb.re/agents
 
 go 1.25.4
 

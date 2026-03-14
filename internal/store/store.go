@@ -1,6 +1,6 @@
 package store
 
-import "notb.re/agent/internal/agent"
+import "notb.re/agents/internal/agent"
 
 // Store is an abstraction for persisting agent state.
 type Store interface {

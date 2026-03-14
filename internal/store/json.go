@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"notb.re/agent/internal/agent"
+	"notb.re/agents/internal/agent"
 )
 
 // JSONStore persists agent state as a single JSON file on disk.

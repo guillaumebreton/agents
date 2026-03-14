@@ -1,5 +1,5 @@
 BINARY := agents
-MODULE := notb.re/agent
+MODULE := notb.re/agents
 
 .PHONY: build run clean install
 
