@@ -17,7 +17,7 @@ On subsequent calls, the branch is optional — the existing worktree is reused.
 If a window already exists, checks it is still running. Otherwise opens a new
 tmux window in the worktree and launches the coding agent.
 
-Use 'agent start all' to start all tracked agents.`,
+Use 'agents start all' to start all tracked agents.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("start: not yet implemented")
 	},
