@@ -1,0 +1,105 @@
+package multiplexer
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// Tmux implements the Multiplexer interface using tmux.
+type Tmux struct{}
+
+// NewTmux returns a new Tmux multiplexer.
+func NewTmux() *Tmux {
+	return &Tmux{}
+}
+
+func (t *Tmux) SessionExists(session string) (bool, error) {
+	cmd := exec.Command("tmux", "has-session", "-t", session)
+	err := cmd.Run()
+	if err != nil {
+		// tmux returns exit code 1 when the session does not exist.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("checking session %q: %w", session, err)
+	}
+	return true, nil
+}
+
+func (t *Tmux) CreateSession(session string, workdir string) error {
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", session, "-c", workdir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("creating session %q: %s: %w", session, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+func (t *Tmux) CreateWindow(session string, name string, workdir string) (Window, error) {
+	// -P prints the window info, -F specifies the format.
+	cmd := exec.Command("tmux", "new-window",
+		"-t", session,
+		"-n", name,
+		"-c", workdir,
+		"-P", "-F", "#{window_id}",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return Window{}, fmt.Errorf("creating window %q in session %q: %s: %w", name, session, strings.TrimSpace(string(out)), err)
+	}
+	id := strings.TrimSpace(string(out))
+	return Window{ID: id, Name: name}, nil
+}
+
+func (t *Tmux) WindowExists(windowID string) (bool, error) {
+	cmd := exec.Command("tmux", "list-windows", "-a", "-F", "#{window_id}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("listing windows: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == windowID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (t *Tmux) KillWindow(windowID string) error {
+	cmd := exec.Command("tmux", "kill-window", "-t", windowID)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("killing window %q: %s: %w", windowID, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+func (t *Tmux) ListWindows(session string) ([]Window, error) {
+	cmd := exec.Command("tmux", "list-windows",
+		"-t", session,
+		"-F", "#{window_id}\t#{window_name}",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("listing windows in session %q: %s: %w", session, strings.TrimSpace(string(out)), err)
+	}
+	var windows []Window
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		windows = append(windows, Window{ID: parts[0], Name: parts[1]})
+	}
+	return windows, nil
+}
+
+func (t *Tmux) SendCommand(windowID string, command string) error {
+	cmd := exec.Command("tmux", "send-keys", "-t", windowID, command, "Enter")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sending command to window %q: %s: %w", windowID, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}

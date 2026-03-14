@@ -20,6 +20,9 @@ type Multiplexer interface {
 	// CreateWindow creates a new window inside the session and returns it.
 	CreateWindow(session string, name string, workdir string) (Window, error)
 
+	// WindowExists checks whether the given window is still alive.
+	WindowExists(windowID string) (bool, error)
+
 	// KillWindow destroys a window by its ID.
 	KillWindow(windowID string) error
 
