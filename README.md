@@ -1,27 +1,36 @@
 ## Agents
 
-Simple, straight forward agent watcher in golang.
+Simple, straightforward agent watcher in golang.
 
 ## What it does
 
-It work in a directory where all repositories are clone. 
-- It works in a tmux session name agent. 
-- It works in a tmux session named agents. 
-- In the first window, it starts agents watch - which for now lists the agents and the session
-- When you do agents start <repository_name> <branch>, it creates a worktree for the agent, with the branch, in repository_name_worktrees. It stores the link of the window with the repository name in its cache
-- I should be able to stop and restart easily. 
-- When you do agents start it checks if an opencode (configurable) system, and then starts the agent in a new tmux window
-- It should have an abstraction of the agent and an abstraction of terminal multiplexer, so we can swap the implementation later. 
-- When I do agents remove
-- It should keep track of the session if it can so I can do agents start and it restarts in the right place
-- It should keep track of the agent, session, worktree somewhere.
-- I should be able to do agents start all 
-- It should use cobra (or SOTA lib)
-- The watch for now only displays a list of agents, with pane number.
-- It should use charmcli later
+It works in a directory where all repositories are cloned.
 
+- It works in a tmux session named `agents`.
+- In the first window, `agents watch` lists all tracked agents with their tmux window/pane info.
+- `agents start <repo> <branch>` creates a git worktree in `<repo>_worktrees/`, opens a tmux window, detects opencode config and launches the agent.
+- `agents start <repo>` (no branch) restarts a previously tracked agent in its existing worktree.
+- `agents start all` starts all tracked agents.
+- `agents stop <repo>` stops an agent by killing its tmux window.
+- `agents remove <repo>` stops the agent, removes the worktree, and cleans up state.
+- Agent state (name, worktree, session ID, window ID) is persisted to `~/.config/agents/state.json`.
+- Abstractions for the terminal multiplexer and store allow swapping implementations later.
+
+## Plan
+
+- [x] Project structure with abstractions (Agent, Multiplexer interface, Store interface)
+- [x] Cobra CLI scaffolding (start, stop, remove, watch commands)
+- [x] JSON file-based store (`~/.config/agents/state.json`)
+- [x] Tmux multiplexer implementation
+- [ ] `agents start <repo> <branch>` — create worktree, open tmux window, detect & launch opencode, persist state
+- [ ] `agents start <repo>` — restart a previously tracked agent in its worktree
+- [ ] `agents start all` — start all tracked agents
+- [ ] `agents stop <repo>` — kill tmux window, update state
+- [ ] `agents remove <repo>` — stop agent, remove worktree, clean up state
+- [ ] `agents watch` — list all agents with status and tmux window info
+- [ ] Configuration (opencode binary path)
 
 ## For later
 
-- Depending on the agent it should able to add a hook into the agent to detect if it's working or pending. either by using hooks or something else
--
+- Add hooks into the agent to detect if it's working or pending
+- Use charmbracelet TUI libraries for richer watch display

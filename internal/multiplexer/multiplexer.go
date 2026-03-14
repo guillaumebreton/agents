@@ -17,6 +17,10 @@ type Multiplexer interface {
 	// CreateSession creates a new session with the given name and working directory.
 	CreateSession(session string, workdir string) error
 
+	// AttachSession attaches to an existing session. This replaces the
+	// current process (exec) so it does not return on success.
+	AttachSession(session string) error
+
 	// CreateWindow creates a new window inside the session and returns it.
 	CreateWindow(session string, name string, workdir string) (Window, error)
 

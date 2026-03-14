@@ -2,8 +2,10 @@ package multiplexer
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 // Tmux implements the Multiplexer interface using tmux.
@@ -25,6 +27,14 @@ func (t *Tmux) SessionExists(session string) (bool, error) {
 		return false, fmt.Errorf("checking session %q: %w", session, err)
 	}
 	return true, nil
+}
+
+func (t *Tmux) AttachSession(session string) error {
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
+	}
+	return syscall.Exec(tmuxPath, []string{"tmux", "attach-session", "-t", session}, os.Environ())
 }
 
 func (t *Tmux) CreateSession(session string, workdir string) error {
