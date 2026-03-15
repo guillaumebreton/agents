@@ -13,6 +13,7 @@ import (
 
 const sessionName = "agents"
 
+var debug bool
 var mux multiplexer.Multiplexer = multiplexer.NewTmux()
 var dataStore store.Store
 
@@ -29,6 +30,13 @@ var rootCmd = &cobra.Command{
 	Use:   "agents",
 	Short: "Simple agent watcher for coding agents",
 	Long:  "A CLI tool that manages coding agents in terminal multiplexer sessions, handling git worktrees and agent lifecycle.",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if debug {
+			log.SetLevel(log.DebugLevel)
+		} else {
+			log.SetLevel(log.InfoLevel)
+		}
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		workspace, err := config.Workspace()
 		if err != nil {
@@ -61,9 +69,12 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
+}
+
 // Execute runs the root command.
 func Execute() {
-	log.SetLevel(log.DebugLevel)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
