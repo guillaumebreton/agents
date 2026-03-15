@@ -76,27 +76,58 @@ func startNewAgent(repo string, branch string, agentType string) error {
 		return err
 	}
 
+	// 1. Check if the repo exists.
 	repoPath := filepath.Join(workspace, repo)
 	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
 		return fmt.Errorf("repository directory %q not found", repoPath)
 	}
 
-	// Create worktree directory.
+	// 2. Check if the branch exists (local or remote).
+	branchExists := false
+	checkLocal := exec.Command("git", "rev-parse", "--verify", branch)
+	checkLocal.Dir = repoPath
+	checkLocal.Stderr = &strings.Builder{}
+	if checkLocal.Run() == nil {
+		branchExists = true
+	} else {
+		// Check remote.
+		checkRemote := exec.Command("git", "rev-parse", "--verify", "origin/"+branch)
+		checkRemote.Dir = repoPath
+		checkRemote.Stderr = &strings.Builder{}
+		if checkRemote.Run() == nil {
+			branchExists = true
+		}
+	}
+
+	// 3. Check if the worktree already exists.
 	worktreeDir := filepath.Join(workspace, repo+"_worktrees")
 	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
 		return fmt.Errorf("creating worktree directory: %w", err)
 	}
-
 	worktreePath := filepath.Join(worktreeDir, branch)
-
-	// Create git worktree.
-	gitCmd := exec.Command("git", "worktree", "add", worktreePath, branch)
-	gitCmd.Dir = repoPath
-	if out, err := gitCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
+	worktreeExists := false
+	if _, err := os.Stat(worktreePath); err == nil {
+		worktreeExists = true
 	}
 
-	fmt.Printf("created worktree at %s\n", worktreePath)
+	// 4. Create the worktree with the right command.
+	if !worktreeExists {
+		var gitCmd *exec.Cmd
+		if branchExists {
+			// Branch exists — check it out into the worktree.
+			gitCmd = exec.Command("git", "worktree", "add", worktreePath, branch)
+		} else {
+			// Branch doesn't exist — create a new branch from HEAD.
+			gitCmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
+		}
+		gitCmd.Dir = repoPath
+		if out, err := gitCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
+		}
+		fmt.Printf("created worktree at %s\n", worktreePath)
+	} else {
+		fmt.Printf("worktree already exists at %s\n", worktreePath)
+	}
 
 	// Create the agent and start it.
 	a := agent.Agent{
