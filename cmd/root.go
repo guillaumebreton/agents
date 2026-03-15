@@ -5,28 +5,40 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"notb.re/agents/internal/config"
 	"notb.re/agents/internal/multiplexer"
+	"notb.re/agents/internal/store"
 )
 
 const sessionName = "agents"
 
 var mux multiplexer.Multiplexer = multiplexer.NewTmux()
+var dataStore store.Store
+
+func init() {
+	s, err := store.NewJSONStore()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	dataStore = s
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "agents",
 	Short: "Simple agent watcher for coding agents",
 	Long:  "A CLI tool that manages coding agents in terminal multiplexer sessions, handling git worktrees and agent lifecycle.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		workspace, err := config.Workspace()
+		if err != nil {
+			return err
+		}
 		exists, err := mux.SessionExists(sessionName)
 		if err != nil {
 			return err
 		}
 		if !exists {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("getting working directory: %w", err)
-			}
-			if err := mux.CreateSession(sessionName, cwd); err != nil {
+			if err := mux.CreateSession(sessionName, workspace); err != nil {
 				return err
 			}
 		}
