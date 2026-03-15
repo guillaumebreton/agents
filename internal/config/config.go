@@ -67,6 +67,35 @@ func init() {
 	configPath = filepath.Join(configDir, "agents", "config.json")
 }
 
+// Path returns the path to the config file.
+func Path() string {
+	return configPath
+}
+
+// Exists returns true if the config file already exists on disk.
+func Exists() bool {
+	_, err := os.Stat(configPath)
+	return err == nil
+}
+
+// Init creates a default config file at the config path using cwd as the
+// workspace. Returns an error if the config already exists.
+func Init() error {
+	if Exists() {
+		return fmt.Errorf("config already exists at %s", configPath)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	cfg := Config{
+		Workspace:    cwd,
+		DefaultAgent: defaultAgentName,
+		Agents:       DefaultAgents(),
+	}
+	return Save(cfg)
+}
+
 // Load reads the config from disk. Returns an empty Config if the file
 // does not exist yet.
 func Load() (Config, error) {
