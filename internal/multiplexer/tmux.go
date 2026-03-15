@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/charmbracelet/log"
 )
 
 // Tmux implements the Multiplexer interface using tmux.
@@ -17,7 +20,11 @@ func NewTmux() *Tmux {
 }
 
 func (t *Tmux) SessionExists(session string) (bool, error) {
+	log.Debug("checking if session exists", "session", session)
 	cmd := exec.Command("tmux", "has-session", "-t", session)
+	// Suppress stderr so tmux error messages don't leak to the terminal.
+	cmd.Stdout = nil
+	cmd.Stderr = &strings.Builder{}
 	err := cmd.Run()
 	if err != nil {
 		// tmux returns exit code 1 when the session does not exist.
@@ -30,6 +37,7 @@ func (t *Tmux) SessionExists(session string) (bool, error) {
 }
 
 func (t *Tmux) AttachSession(session string) error {
+	log.Debug("attaching to session", "session", session)
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
@@ -38,6 +46,7 @@ func (t *Tmux) AttachSession(session string) error {
 }
 
 func (t *Tmux) CreateSession(session string, workdir string) error {
+	log.Debug("creating session", "session", session, "workdir", workdir)
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", session, "-c", workdir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("creating session %q: %s: %w", session, strings.TrimSpace(string(out)), err)
@@ -67,12 +76,8 @@ func (t *Tmux) WindowExists(windowID string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("listing windows: %s: %w", strings.TrimSpace(string(out)), err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == windowID {
-			return true, nil
-		}
-	}
-	return false, nil
+
+	return slices.Contains(strings.Split(strings.TrimSpace(string(out)), "\n"), windowID), nil
 }
 
 func (t *Tmux) KillWindow(windowID string) error {
@@ -107,6 +112,7 @@ func (t *Tmux) ListWindows(session string) ([]Window, error) {
 }
 
 func (t *Tmux) SendCommand(windowID string, command string) error {
+	log.Debug("sending command", "window", windowID, "command", command)
 	cmd := exec.Command("tmux", "send-keys", "-t", windowID, command, "Enter")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("sending command to window %q: %s: %w", windowID, strings.TrimSpace(string(out)), err)

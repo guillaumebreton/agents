@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 	"notb.re/agents/internal/config"
 	"notb.re/agents/internal/multiplexer"
@@ -42,12 +43,18 @@ var rootCmd = &cobra.Command{
 				return err
 			}
 			// Launch watch in the first window.
-			exe, err := os.Executable()
+			windows, err := mux.ListWindows(sessionName)
 			if err != nil {
-				return fmt.Errorf("resolving executable path: %w", err)
+				return fmt.Errorf("listing windows: %w", err)
 			}
-			if err := mux.SendCommand(sessionName+":0", exe+" watch"); err != nil {
-				return fmt.Errorf("launching watch: %w", err)
+			if len(windows) > 0 {
+				exe, err := os.Executable()
+				if err != nil {
+					return fmt.Errorf("resolving executable path: %w", err)
+				}
+				if err := mux.SendCommand(windows[0].ID, exe+" watch"); err != nil {
+					return fmt.Errorf("launching watch: %w", err)
+				}
 			}
 		}
 		return mux.AttachSession(sessionName)
@@ -56,6 +63,7 @@ var rootCmd = &cobra.Command{
 
 // Execute runs the root command.
 func Execute() {
+	log.SetLevel(log.DebugLevel)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
