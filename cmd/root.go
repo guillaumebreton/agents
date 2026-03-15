@@ -41,6 +41,14 @@ var rootCmd = &cobra.Command{
 			if err := mux.CreateSession(sessionName, workspace); err != nil {
 				return err
 			}
+			// Launch watch in the first window.
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolving executable path: %w", err)
+			}
+			if err := mux.SendCommand(sessionName+":0", exe+" watch"); err != nil {
+				return fmt.Errorf("launching watch: %w", err)
+			}
 		}
 		return mux.AttachSession(sessionName)
 	},

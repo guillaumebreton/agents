@@ -9,7 +9,10 @@ type Agent struct {
 	// WorktreePath is the absolute path to the git worktree.
 	WorktreePath string `json:"worktree_path"`
 
-	// SessionID is the opencode (or other agent) session identifier.
+	// AgentType is the shorthand name of the coding agent (e.g. "opencode").
+	AgentType string `json:"agent_type"`
+
+	// SessionID is the coding agent session identifier.
 	SessionID string `json:"session_id,omitempty"`
 
 	// WindowID is the multiplexer window/pane identifier.

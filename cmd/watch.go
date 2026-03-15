@@ -83,13 +83,12 @@ func tableStyles() table.Styles {
 }
 
 func buildColumns(width int) []table.Column {
-	// Reserve space: 4 columns with 2 padding each = 8 chars padding per col
-	// Window (10) + Status (10) = 20 fixed
-	// Remaining split: Name gets 30%, Worktree gets 70%
+	// Fixed-width columns.
+	agentTypeW := 12
 	windowW := 12
 	statusW := 12
-	fixed := windowW + statusW
-	remaining := width - fixed - 8 // padding allowance
+	fixed := agentTypeW + windowW + statusW
+	remaining := width - fixed - 10 // padding allowance
 	if remaining < 20 {
 		remaining = 20
 	}
@@ -98,6 +97,7 @@ func buildColumns(width int) []table.Column {
 
 	return []table.Column{
 		{Title: "Name", Width: nameW},
+		{Title: "Agent", Width: agentTypeW},
 		{Title: "Worktree", Width: worktreeW},
 		{Title: "Window", Width: windowW},
 		{Title: "Status", Width: statusW},
@@ -126,7 +126,7 @@ func (m *watchModel) refreshRows() {
 				status = "✕ dead"
 			}
 		}
-		rows = append(rows, table.Row{a.Name, a.WorktreePath, windowID, status})
+		rows = append(rows, table.Row{a.Name, a.AgentType, a.WorktreePath, windowID, status})
 	}
 
 	m.table.SetRows(rows)
