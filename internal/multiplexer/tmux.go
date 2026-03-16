@@ -56,7 +56,9 @@ func (t *Tmux) CreateSession(session string, workdir string) error {
 
 func (t *Tmux) CreateWindow(session string, name string, workdir string) (Window, error) {
 	// -P prints the window info, -F specifies the format.
+	// -a appends after the last window to avoid index conflicts.
 	cmd := exec.Command("tmux", "new-window",
+		"-a",
 		"-t", session,
 		"-n", name,
 		"-c", workdir,
@@ -113,6 +115,15 @@ func (t *Tmux) ListWindows(session string) ([]Window, error) {
 		windows = append(windows, Window{ID: parts[0], Name: parts[1]})
 	}
 	return windows, nil
+}
+
+func (t *Tmux) WindowIDForPane(paneID string) (string, error) {
+	cmd := exec.Command("tmux", "display-message", "-t", paneID, "-p", "#{window_id}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("getting window for pane %q: %s: %w", paneID, strings.TrimSpace(string(out)), err)
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func (t *Tmux) SendCommand(windowID string, command string) error {

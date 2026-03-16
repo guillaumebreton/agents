@@ -36,6 +36,9 @@ type Multiplexer interface {
 	// ListWindows returns all windows in the given session.
 	ListWindows(session string) ([]Window, error)
 
+	// WindowIDForPane returns the window ID that contains the given pane ID.
+	WindowIDForPane(paneID string) (string, error)
+
 	// SendCommand sends a shell command to the given window.
 	SendCommand(windowID string, command string) error
 }
