@@ -141,7 +141,14 @@ func (m *watchModel) refreshRows() {
 					status = "● running"
 				}
 			} else {
-				status = "✕ dead"
+				// Window is dead — clean up stale window state.
+				a.WindowID = ""
+				a.PanePID = ""
+				a.Status = "exited"
+				dataStore.Save(a)
+				windowID = "-"
+				panePID = "-"
+				status = "✕ exited"
 			}
 		}
 		rows = append(rows, table.Row{a.Name, a.AgentType, a.WorktreePath, panePID, windowID, status})
