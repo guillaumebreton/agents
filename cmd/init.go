@@ -12,8 +12,8 @@ var initCmd = &cobra.Command{
 	Short: "Initialize the agents configuration",
 	Long: `Create the default configuration file if it doesn't exist.
 
-Sets the current directory as the workspace and seeds default agent
-definitions. The config is written to ~/.config/agents/config.json.`,
+Sets the current directory as the workspace.
+The config is written to ~/.config/agents/config.json.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if config.Exists() {
 			fmt.Printf("config already exists at %s\n", config.Path())

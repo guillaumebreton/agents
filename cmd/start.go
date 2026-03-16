@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"notb.re/agents/internal/agent"
+	"notb.re/agents/internal/coding"
 	"notb.re/agents/internal/config"
 )
 
@@ -25,7 +26,8 @@ On subsequent calls, the branch is optional — the existing worktree is reused.
 If a window already exists, checks it is still running. Otherwise opens a new
 tmux window in the worktree and launches the coding agent.
 
-Use --agent to specify which coding agent to use (default from config).
+Use --agent to specify which coding agent to use (default: opencode).
+Available agents: ` + strings.Join(coding.List(), ", ") + `
 
 Use 'agents start all' to start all tracked agents.`,
 	Args: cobra.RangeArgs(1, 2),
@@ -40,11 +42,12 @@ Use 'agents start all' to start all tracked agents.`,
 		// Resolve agent type.
 		agentType := agentFlag
 		if agentType == "" {
-			def, err := config.DefaultAgentName()
-			if err != nil {
-				return err
-			}
-			agentType = def
+			agentType = coding.Default
+		}
+
+		// Validate the agent type exists.
+		if _, err := coding.Get(agentType); err != nil {
+			return err
 		}
 
 		var branch string
@@ -180,12 +183,12 @@ func openWindowAndSave(a agent.Agent) error {
 	}
 	a.WindowID = win.ID
 
-	// Resolve and launch the coding agent command.
-	agentCmd, err := config.AgentCommand(a.AgentType)
+	// Resolve and launch the coding agent.
+	ca, err := coding.Get(a.AgentType)
 	if err != nil {
-		return fmt.Errorf("resolving agent command: %w", err)
+		return fmt.Errorf("resolving agent: %w", err)
 	}
-	if err := mux.SendCommand(win.ID, agentCmd); err != nil {
+	if err := mux.SendCommand(win.ID, ca.Command()); err != nil {
 		return fmt.Errorf("launching %s: %w", a.AgentType, err)
 	}
 
@@ -194,7 +197,7 @@ func openWindowAndSave(a agent.Agent) error {
 		return err
 	}
 
-	fmt.Printf("started agent %q in window %s\n", a.Name, win.ID)
+	fmt.Printf("started agent %q (%s) in window %s\n", a.Name, a.AgentType, win.ID)
 	return nil
 }
 
@@ -217,6 +220,6 @@ func startAll() error {
 }
 
 func init() {
-	startCmd.Flags().StringVar(&agentFlag, "agent", "", "coding agent to use (default from config)")
+	startCmd.Flags().StringVar(&agentFlag, "agent", "", "coding agent to use (default: opencode)")
 	rootCmd.AddCommand(startCmd)
 }

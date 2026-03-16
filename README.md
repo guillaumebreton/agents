@@ -6,31 +6,46 @@ Simple, straightforward agent watcher in golang.
 
 It works in a directory where all repositories are cloned. The workspace path is set on first run and stored in `~/.config/agents/config.json`.
 
-- Running `agents` with no subcommand ensures a tmux session named `agents` exists and attaches to it.
-- `agents start <repo> <branch>` creates a git worktree in `<repo>_worktrees/`, opens a tmux window, and launches opencode.
+- Running `agents` with no subcommand ensures a tmux session named `agents` exists, launches `agents watch` in the first window, and attaches to it.
+- `agents init` creates the config file with the current directory as workspace.
+- `agents start <repo> <branch>` creates a git worktree in `<repo>_worktrees/`, opens a tmux window, and launches the coding agent.
+- `agents start <repo> <branch> --agent=opencode` specifies which coding agent to use.
 - `agents start <repo>` (no branch) restarts a previously tracked agent in its existing worktree. If the window is still alive, it's a no-op.
 - `agents start all` starts all tracked agents.
 - `agents remove <repo>` kills the tmux window, removes the worktree, and deletes the agent from state.
-- `agents watch` lists all tracked agents with their tmux window info.
-- Agent state (name, worktree path, session ID, window ID) is persisted to `~/.config/agents/state.json`.
-- Abstractions for the terminal multiplexer and store allow swapping implementations later.
+- `agents watch` full-screen TUI showing all tracked agents with live status.
+- `agents version` prints the version.
+- `--debug` flag enables debug logging on any command.
+
+## Architecture
+
+- **Coding agents** are code-based abstractions (`internal/coding`). Each implementation (e.g. OpenCode) registers itself and provides its launch command. New agents are added as code, not config.
+- **Multiplexer** is an interface (`internal/multiplexer`) with a tmux implementation. Swappable for zellij etc.
+- **Store** persists agent state to `~/.config/agents/state.json`.
+- **Config** stores workspace path in `~/.config/agents/config.json`.
 
 ## Plan
 
-- [x] Project structure with abstractions (Agent, Multiplexer interface, Store interface)
+- [x] Project structure with abstractions
 - [x] Cobra CLI scaffolding
-- [x] JSON file-based store (`~/.config/agents/state.json`)
+- [x] JSON file-based store
 - [x] Tmux multiplexer implementation
-- [x] Workspace config (`~/.config/agents/config.json`, set on first run)
-- [x] `agents start <repo> <branch>` — create worktree, open tmux window, launch opencode, persist state
-- [x] `agents start <repo>` — restart a previously tracked agent in its worktree
-- [x] `agents start all` — start all tracked agents
-- [ ] `agents remove <repo>` — kill window, remove worktree, clean up state
-- [ ] `agents watch` — list all agents with status and tmux window info
-- [ ] Configuration (opencode binary path)
+- [x] Workspace config
+- [x] `agents start` (new, existing, all)
+- [x] `agents remove`
+- [x] `agents watch` with charmbracelet TUI
+- [x] `agents init`
+- [x] `agents version`
+- [x] Code-based coding agent abstraction with OpenCode implementation
+- [x] `--agent` flag
+- [x] `--debug` flag
+- [x] CI (GitHub Actions: build, test, vet)
+- [x] Release pipeline (goreleaser)
+- [x] Tests (config, store, coding registry)
 
 ## For later
 
+- Add more coding agent implementations (claude, aider, etc.)
 - Add hooks into the agent to detect if it's working or pending
-- The watch needs to be also a web ui, so we can access if from anywhere
-- Use charmbracelet TUI libraries for richer watch display
+- Navigation actions in watch (enter to jump to window, r to remove, s to start)
+- Web UI for watch
