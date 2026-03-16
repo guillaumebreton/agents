@@ -95,6 +95,22 @@ func (s *JSONStore) Get(name string) (agent.Agent, error) {
 	return a, nil
 }
 
+func (s *JSONStore) GetByWorktree(worktree string) (agent.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	st, err := s.load()
+	if err != nil {
+		return agent.Agent{}, err
+	}
+	for _, a := range st.Agents {
+		if a.WorktreePath == worktree {
+			return a, nil
+		}
+	}
+	return agent.Agent{}, fmt.Errorf("no agent found for worktree %q", worktree)
+}
+
 func (s *JSONStore) Save(a agent.Agent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

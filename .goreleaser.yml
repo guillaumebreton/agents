@@ -10,6 +10,7 @@ builds:
       - -X notb.re/agents/cmd.Version={{.Version}}
       - -X notb.re/agents/cmd.Commit={{.ShortCommit}}
       - -X notb.re/agents/cmd.Date={{.Date}}
+      - -X notb.re/agents/internal/coding.HookVersion={{.Version}}
     goos:
       - linux
       - darwin

@@ -121,7 +121,19 @@ func (m *watchModel) refreshRows() {
 			windowID = a.WindowID
 			alive, err := mux.WindowExists(a.WindowID)
 			if err == nil && alive {
-				status = "● running"
+				// Use the reported status if available.
+				switch a.Status {
+				case "idle":
+					status = "● idle"
+				case "working":
+					status = "◆ working"
+				case "waiting":
+					status = "◇ waiting"
+				case "exited":
+					status = "✕ exited"
+				default:
+					status = "● running"
+				}
 			} else {
 				status = "✕ dead"
 			}

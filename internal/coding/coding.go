@@ -13,6 +13,14 @@ type CodingAgent interface {
 
 	// Command returns the shell command to launch the agent.
 	Command() string
+
+	// Hook returns the content of a plugin/hook file that reports
+	// status back to agents, or empty string if not supported.
+	Hook(agentsBinary string) string
+
+	// HookPath returns the path where the hook file should be installed,
+	// or empty string if not supported.
+	HookPath() string
 }
 
 var registry = map[string]CodingAgent{}
@@ -42,3 +50,7 @@ func List() []string {
 
 // Default is the name of the default coding agent.
 const Default = "opencode"
+
+// HookVersion is embedded in generated hook files so we can detect
+// when a hook needs to be updated after an agents upgrade.
+var HookVersion = "dev"

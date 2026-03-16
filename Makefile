@@ -6,7 +6,8 @@ DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -s -w \
 	-X $(MODULE)/cmd.Version=$(VERSION) \
 	-X $(MODULE)/cmd.Commit=$(COMMIT) \
-	-X $(MODULE)/cmd.Date=$(DATE)
+	-X $(MODULE)/cmd.Date=$(DATE) \
+	-X $(MODULE)/internal/coding.HookVersion=$(VERSION)
 
 .PHONY: build run clean install test
 

@@ -10,6 +10,9 @@ type Store interface {
 	// Get returns a single agent by name.
 	Get(name string) (agent.Agent, error)
 
+	// GetByWorktree returns a single agent by its worktree path.
+	GetByWorktree(worktree string) (agent.Agent, error)
+
 	// Save persists an agent (creates or updates).
 	Save(a agent.Agent) error
 
