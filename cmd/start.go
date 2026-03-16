@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 )
 
 var agentFlag string
+var forceFlag bool
 
 var startCmd = &cobra.Command{
 	Use:   "start <repo> [branch]",
@@ -27,6 +29,7 @@ If a window already exists, checks it is still running. Otherwise opens a new
 tmux window in the worktree and launches the coding agent.
 
 Use --agent to specify which coding agent to use (default: opencode).
+Use -f to force worktree creation if a stale registration exists.
 Available agents: ` + strings.Join(coding.List(), ", ") + `
 
 Use 'agents start all' to start all tracked agents.`,
@@ -115,17 +118,29 @@ func startNewAgent(repo string, branch string, agentType string) error {
 
 	// 4. Create the worktree with the right command.
 	if !worktreeExists {
-		var gitCmd *exec.Cmd
-		if branchExists {
-			// Branch exists — check it out into the worktree.
-			gitCmd = exec.Command("git", "worktree", "add", worktreePath, branch)
-		} else {
-			// Branch doesn't exist — create a new branch from HEAD.
-			gitCmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
-		}
-		gitCmd.Dir = repoPath
-		if out, err := gitCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
+		if err := createWorktree(repoPath, worktreePath, branch, branchExists); err != nil {
+			// Handle stale worktree registration.
+			if strings.Contains(err.Error(), "already registered worktree") {
+				if !forceFlag {
+					fmt.Printf("Stale worktree registration found for %q.\n", worktreePath)
+					fmt.Print("Prune and recreate? [y/N] ")
+					reader := bufio.NewReader(os.Stdin)
+					answer, _ := reader.ReadString('\n')
+					answer = strings.TrimSpace(strings.ToLower(answer))
+					if answer != "y" && answer != "yes" {
+						return fmt.Errorf("aborted (use -f to skip confirmation)")
+					}
+				}
+				// Prune stale worktrees and retry.
+				pruneCmd := exec.Command("git", "worktree", "prune")
+				pruneCmd.Dir = repoPath
+				pruneCmd.CombinedOutput()
+				if err := createWorktree(repoPath, worktreePath, branch, branchExists); err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
 		}
 		fmt.Printf("created worktree at %s\n", worktreePath)
 	} else {
@@ -140,6 +155,20 @@ func startNewAgent(repo string, branch string, agentType string) error {
 	}
 
 	return openWindowAndSave(a)
+}
+
+func createWorktree(repoPath, worktreePath, branch string, branchExists bool) error {
+	var gitCmd *exec.Cmd
+	if branchExists {
+		gitCmd = exec.Command("git", "worktree", "add", worktreePath, branch)
+	} else {
+		gitCmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
+	}
+	gitCmd.Dir = repoPath
+	if out, err := gitCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("creating worktree: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 func startExistingAgent(a agent.Agent) error {
@@ -222,5 +251,6 @@ func startAll() error {
 
 func init() {
 	startCmd.Flags().StringVar(&agentFlag, "agent", "", "coding agent to use (default: opencode)")
+	startCmd.Flags().BoolVarP(&forceFlag, "force", "f", false, "force worktree creation if stale registration exists")
 	rootCmd.AddCommand(startCmd)
 }
