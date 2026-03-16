@@ -7,6 +7,9 @@ type Window struct {
 
 	// Name is the display name of the window.
 	Name string
+
+	// PanePID is the process ID of the shell running in the pane.
+	PanePID string
 }
 
 // Multiplexer is an abstraction over terminal multiplexers (tmux, zellij, etc.).

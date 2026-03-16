@@ -40,4 +40,7 @@ type Agent struct {
 	// WindowID is the multiplexer window/pane identifier.
 	// Empty means no window is currently open.
 	WindowID string `json:"window_id,omitempty"`
+
+	// PanePID is the process ID of the shell running in the pane.
+	PanePID string `json:"pane_pid,omitempty"`
 }

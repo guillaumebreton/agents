@@ -182,6 +182,7 @@ func openWindowAndSave(a agent.Agent) error {
 		return err
 	}
 	a.WindowID = win.ID
+	a.PanePID = win.PanePID
 
 	// Resolve and launch the coding agent.
 	ca, err := coding.Get(a.AgentType)

@@ -60,14 +60,18 @@ func (t *Tmux) CreateWindow(session string, name string, workdir string) (Window
 		"-t", session,
 		"-n", name,
 		"-c", workdir,
-		"-P", "-F", "#{window_id}",
+		"-P", "-F", "#{window_id}\t#{pane_pid}",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return Window{}, fmt.Errorf("creating window %q in session %q: %s: %w", name, session, strings.TrimSpace(string(out)), err)
 	}
-	id := strings.TrimSpace(string(out))
-	return Window{ID: id, Name: name}, nil
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
+	w := Window{ID: parts[0], Name: name}
+	if len(parts) == 2 {
+		w.PanePID = parts[1]
+	}
+	return w, nil
 }
 
 func (t *Tmux) WindowExists(windowID string) (bool, error) {

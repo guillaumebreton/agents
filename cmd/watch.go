@@ -85,10 +85,11 @@ func tableStyles() table.Styles {
 func buildColumns(width int) []table.Column {
 	// Fixed-width columns.
 	agentTypeW := 12
-	windowW := 12
+	pidW := 10
+	windowW := 10
 	statusW := 12
-	fixed := agentTypeW + windowW + statusW
-	remaining := width - fixed - 10 // padding allowance
+	fixed := agentTypeW + pidW + windowW + statusW
+	remaining := width - fixed - 12 // padding allowance
 	if remaining < 20 {
 		remaining = 20
 	}
@@ -99,6 +100,7 @@ func buildColumns(width int) []table.Column {
 		{Title: "Name", Width: nameW},
 		{Title: "Agent", Width: agentTypeW},
 		{Title: "Worktree", Width: worktreeW},
+		{Title: "PID", Width: pidW},
 		{Title: "Window", Width: windowW},
 		{Title: "Status", Width: statusW},
 	}
@@ -117,8 +119,12 @@ func (m *watchModel) refreshRows() {
 	for _, a := range agents {
 		status := "○ stopped"
 		windowID := "-"
+		panePID := "-"
 		if a.WindowID != "" {
 			windowID = a.WindowID
+			if a.PanePID != "" {
+				panePID = a.PanePID
+			}
 			alive, err := mux.WindowExists(a.WindowID)
 			if err == nil && alive {
 				// Use the reported status if available.
@@ -138,7 +144,7 @@ func (m *watchModel) refreshRows() {
 				status = "✕ dead"
 			}
 		}
-		rows = append(rows, table.Row{a.Name, a.AgentType, a.WorktreePath, windowID, status})
+		rows = append(rows, table.Row{a.Name, a.AgentType, a.WorktreePath, panePID, windowID, status})
 	}
 
 	m.table.SetRows(rows)
