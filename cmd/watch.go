@@ -91,9 +91,7 @@ func buildColumns(width int) []table.Column {
 	statusW := 12
 	fixed := agentTypeW + pidW + windowW + statusW
 	remaining := width - fixed - 12 // padding allowance
-	if remaining < 20 {
-		remaining = 20
-	}
+	remaining = max(remaining, 20)
 	nameW := remaining * 30 / 100
 	worktreeW := remaining - nameW
 
@@ -167,9 +165,7 @@ func (m *watchModel) recalcLayout() {
 	m.table.SetColumns(buildColumns(m.width))
 	// Title (1) + margin (1) + help (1) + margin (1) + header border (1) = 5 lines overhead
 	tableHeight := m.height - 5
-	if tableHeight < 3 {
-		tableHeight = 3
-	}
+	tableHeight = max(tableHeight, 3)
 	m.table.SetHeight(tableHeight)
 }
 
