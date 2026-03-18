@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"notb.re/agents/internal/agent"
 )
@@ -34,6 +35,24 @@ and removes it.`,
 				return err
 			}
 			fmt.Printf("detected agent %q from current window\n", a.Name)
+		}
+
+		if !removeForceFlag {
+			var confirm bool
+			err = huh.NewConfirm().
+				Title(fmt.Sprintf("Remove agent %q?", a.Name)).
+				Description("This will kill the window and remove the worktree.").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&confirm).
+				Run()
+			if err != nil {
+				return err
+			}
+			if !confirm {
+				fmt.Println("aborted")
+				return nil
+			}
 		}
 
 		return removeAgent(a)
@@ -103,5 +122,8 @@ func removeAgent(a agent.Agent) error {
 }
 
 func init() {
+	removeCmd.Flags().BoolVarP(&removeForceFlag, "force", "f", false, "skip confirmation prompt")
 	rootCmd.AddCommand(removeCmd)
 }
+
+var removeForceFlag bool

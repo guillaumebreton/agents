@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,10 +46,12 @@ func tickCmd() tea.Cmd {
 }
 
 type watchModel struct {
-	table  table.Model
-	width  int
-	height int
-	err    error
+	table       table.Model
+	width       int
+	height      int
+	err         error
+	confirming  bool   // true when showing delete confirmation
+	confirmName string // name of the agent to delete
 }
 
 func newWatchModel() watchModel {
@@ -111,6 +114,11 @@ func (m *watchModel) refreshRows() {
 		m.err = err
 		return
 	}
+
+	// Stable ordering by name.
+	sort.Slice(agents, func(i, j int) bool {
+		return agents[i].Name < agents[j].Name
+	})
 
 	cursor := m.table.Cursor()
 
@@ -176,9 +184,36 @@ func (m watchModel) Init() tea.Cmd {
 func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.confirming {
+			switch msg.String() {
+			case "y":
+				// Perform the removal.
+				a, err := dataStore.Get(m.confirmName)
+				if err == nil {
+					removeAgent(a)
+				}
+				m.confirming = false
+				m.confirmName = ""
+				m.refreshRows()
+				return m, nil
+			case "n", "esc":
+				m.confirming = false
+				m.confirmName = ""
+				return m, nil
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "d":
+			row := m.table.SelectedRow()
+			if row != nil {
+				m.confirming = true
+				m.confirmName = row[0]
+			}
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -186,13 +221,18 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalcLayout()
 		return m, nil
 	case tickMsg:
-		m.refreshRows()
+		if !m.confirming {
+			m.refreshRows()
+		}
 		return m, tickCmd()
 	}
 
-	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(msg)
-	return m, cmd
+	if !m.confirming {
+		var cmd tea.Cmd
+		m.table, cmd = m.table.Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m watchModel) View() string {
@@ -206,16 +246,25 @@ func (m watchModel) View() string {
 		Foreground(colorDim).
 		MarginTop(1)
 
-	agentCount := len(m.table.Rows())
-	help := helpStyle.Render(fmt.Sprintf(
-		"↑/↓ navigate • q quit • %d agent(s) • refreshes every 2s",
-		agentCount,
-	))
+	var helpText string
+	if m.confirming {
+		helpText = lipgloss.NewStyle().
+			Foreground(colorRed).
+			MarginTop(1).
+			Bold(true).
+			Render(fmt.Sprintf("Remove agent %q? y/n", m.confirmName))
+	} else {
+		agentCount := len(m.table.Rows())
+		helpText = helpStyle.Render(fmt.Sprintf(
+			"↑/↓ navigate • d remove • q quit • %d agent(s)",
+			agentCount,
+		))
+	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		m.table.View(),
-		help,
+		helpText,
 	)
 
 	return lipgloss.NewStyle().
