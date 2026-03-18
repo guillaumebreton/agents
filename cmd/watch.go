@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"notb.re/agents/internal/config"
 )
 
 // Charm-inspired color palette.
@@ -77,8 +79,7 @@ func tableStyles() table.Styles {
 	s.Selected = lipgloss.NewStyle().
 		Foreground(colorCream).
 		Background(colorSelectBg).
-		Bold(true).
-		Padding(0, 1)
+		Bold(true)
 	return s
 }
 
@@ -151,7 +152,7 @@ func (m *watchModel) refreshRows() {
 				status = "✕ exited"
 			}
 		}
-		rows = append(rows, table.Row{a.Name, a.AgentType, a.WorktreePath, panePID, windowID, status})
+		rows = append(rows, table.Row{a.Name, a.AgentType, shortenWorktree(a.WorktreePath), panePID, windowID, status})
 	}
 
 	m.table.SetRows(rows)
@@ -203,11 +204,7 @@ func (m watchModel) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err)
 	}
 
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(colorPurple).
-		MarginBottom(1).
-		Render("◆ Agents")
+	title := renderGradientTitle("Agents")
 
 	helpStyle := lipgloss.NewStyle().
 		Foreground(colorDim).
@@ -228,8 +225,43 @@ func (m watchModel) View() string {
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
-		Background(colorBg).
 		Render(content)
+}
+
+// renderGradientTitle renders "///// Title" with a purple gradient on the slashes.
+func renderGradientTitle(text string) string {
+	// Purple gradient from dim to bright.
+	gradientColors := []lipgloss.Color{
+		lipgloss.Color("53"),
+		lipgloss.Color("55"),
+		lipgloss.Color("57"),
+		lipgloss.Color("63"),
+		lipgloss.Color("99"),
+	}
+
+	var b strings.Builder
+	for i, c := range gradientColors {
+		style := lipgloss.NewStyle().Foreground(c).Bold(true)
+		_ = i
+		b.WriteString(style.Render("/"))
+	}
+	b.WriteString(" ")
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(text))
+
+	return lipgloss.NewStyle().MarginBottom(1).Render(b.String())
+}
+
+// shortenWorktree returns the worktree path relative to the workspace.
+func shortenWorktree(worktreePath string) string {
+	workspace, err := config.Workspace()
+	if err != nil {
+		return worktreePath
+	}
+	rel, ok := strings.CutPrefix(worktreePath, workspace)
+	if !ok {
+		return worktreePath
+	}
+	return strings.TrimPrefix(rel, "/")
 }
 
 func init() {

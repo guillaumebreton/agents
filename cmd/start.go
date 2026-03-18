@@ -18,21 +18,22 @@ var agentFlag string
 var forceFlag bool
 
 var startCmd = &cobra.Command{
-	Use:   "start <repo> [branch]",
-	Short: "Start an agent for a repository",
-	Long: `Start an agent for the given repository.
+	Use:   "start <repo> <branch>",
+	Short: "Start an agent for a repository branch",
+	Long: `Start an agent for the given repository and branch.
 
-On the first call, a branch is required to create the git worktree.
-On subsequent calls, the branch is optional — the existing worktree is reused.
+Creates a git worktree for the branch (if needed) and launches the coding agent
+in a new tmux window. The agent is identified by repo/branch, allowing multiple
+agents per repository on different branches.
 
-If a window already exists, checks it is still running. Otherwise opens a new
-tmux window in the worktree and launches the coding agent.
+If the agent already exists and its window is still alive, reports it as running.
+Otherwise opens a new tmux window and relaunches.
 
 Use --agent to specify which coding agent to use (default: opencode).
 Use -f to force worktree creation if a stale registration exists.
 Available agents: ` + strings.Join(coding.List(), ", ") + `
 
-Use 'agents start all' to start all tracked agents.`,
+Use 'agents start all' to restart all tracked agents.`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repo := args[0]
@@ -41,6 +42,11 @@ Use 'agents start all' to start all tracked agents.`,
 		if repo == "all" {
 			return startAll()
 		}
+
+		if len(args) < 2 {
+			return fmt.Errorf("a branch is required: agents start %s <branch>", repo)
+		}
+		branch := args[1]
 
 		// Resolve agent type.
 		agentType := agentFlag
@@ -53,23 +59,25 @@ Use 'agents start all' to start all tracked agents.`,
 			return err
 		}
 
-		var branch string
-		if len(args) == 2 {
-			branch = args[1]
-		}
-
 		return startAgent(repo, branch, agentType)
 	},
 }
 
+// agentName returns the unique identifier for an agent: repo/branch.
+func agentName(repo, branch string) string {
+	return repo + "/" + branch
+}
+
 func startAgent(repo string, branch string, agentType string) error {
+	if branch == "" {
+		return fmt.Errorf("a branch is required: agents start %s <branch>", repo)
+	}
+
+	name := agentName(repo, branch)
+
 	// Check if agent is already tracked.
-	a, err := dataStore.Get(repo)
+	a, err := dataStore.Get(name)
 	if err != nil {
-		// Agent not found — this is a new agent, branch is required.
-		if branch == "" {
-			return fmt.Errorf("agent %q not found, a branch is required: agents start %s <branch>", repo, repo)
-		}
 		return startNewAgent(repo, branch, agentType)
 	}
 
@@ -149,7 +157,7 @@ func startNewAgent(repo string, branch string, agentType string) error {
 
 	// Create the agent and start it.
 	a := agent.Agent{
-		Name:         repo,
+		Name:         agentName(repo, branch),
 		WorktreePath: worktreePath,
 		AgentType:    agentType,
 	}

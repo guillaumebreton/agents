@@ -1,6 +1,7 @@
 package coding
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -26,13 +27,7 @@ func TestGetUnknownAgent(t *testing.T) {
 
 func TestListContainsOpenCode(t *testing.T) {
 	names := List()
-	found := false
-	for _, n := range names {
-		if n == "opencode" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(names, "opencode")
 	if !found {
 		t.Error("expected List() to contain 'opencode'")
 	}

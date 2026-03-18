@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -ldflags '-s -w' -o ./tmp/agents ."
+  bin = "./tmp/agents"
+  args_bin = ["watch"]
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  exclude_dir = ["tmp", "vendor", ".git"]
+  delay = 500
+  kill_delay = 500
+  send_interrupt = true
+  stop_on_error = true

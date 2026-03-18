@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/cmd.Date=$(DATE) \
 	-X $(MODULE)/internal/coding.HookVersion=$(VERSION)
 
-.PHONY: build run clean install test
+.PHONY: build run clean install test dev
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -25,3 +25,6 @@ install:
 
 test:
 	go test ./...
+
+dev:
+	air

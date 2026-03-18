@@ -11,11 +11,11 @@ import (
 )
 
 var removeCmd = &cobra.Command{
-	Use:   "remove [repo]",
+	Use:   "remove [repo/branch]",
 	Short: "Remove an agent, its worktree, and clean up state",
-	Long: `Remove an agent by name, or auto-detect from the current tmux window.
+	Long: `Remove an agent by name (repo/branch), or auto-detect from the current tmux window.
 
-If no repo is given, detects which agent owns the current tmux window
+If no name is given, detects which agent owns the current tmux window
 and removes it.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
