@@ -22,11 +22,11 @@ func (o *OpenCode) Command() string {
 }
 
 func (o *OpenCode) HookPath() string {
-	configDir, err := os.UserConfigDir()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(configDir, "opencode", "plugins", "agents-hook.js")
+	return filepath.Join(home, ".config", "opencode", "plugins", "agents-hook.js")
 }
 
 func (o *OpenCode) Hook(agentsBinary string) string {
@@ -37,11 +37,14 @@ func (o *OpenCode) Hook(agentsBinary string) string {
 
 export const AgentsPlugin = async ({ worktree, $ }) => {
   const agents = %q;
-  const wt = worktree;
+  const panePid = String(process.ppid);
 
+  let lastStatus = "";
   const update = async (status) => {
+    if (status === lastStatus) return;
+    lastStatus = status;
     try {
-      await $`+"`"+`${agents} update-status --worktree ${wt} --status ${status}`+"`"+`;
+      await $`+"`"+`${agents} update-status --pane-pid ${panePid} --status ${status}`+"`"+`;
     } catch (e) {
       // Silently ignore — agents might not be running.
     }
@@ -51,25 +54,26 @@ export const AgentsPlugin = async ({ worktree, $ }) => {
   await update("idle");
 
   return {
-    event: async ({ event }) => {
-      switch (event.type) {
-        case "session.status":
-          // session.status fires when the agent starts/stops working.
-          await update("working");
-          break;
-        case "session.idle":
-          await update("idle");
-          break;
-        case "session.error":
-          await update("waiting");
-          break;
-        case "permission.asked":
-          await update("waiting");
-          break;
-        case "permission.replied":
-          await update("working");
-          break;
-      }
+    "message.updated": async () => {
+      await update("working");
+    },
+    "message.part.updated": async () => {
+      await update("working");
+    },
+    "tool.execute.before": async () => {
+      await update("working");
+    },
+    "session.idle": async () => {
+      await update("idle");
+    },
+    "session.error": async () => {
+      await update("waiting");
+    },
+    "permission.asked": async () => {
+      await update("waiting");
+    },
+    "permission.replied": async () => {
+      await update("working");
     },
   };
 };

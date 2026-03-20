@@ -49,3 +49,10 @@ It works in a directory where all repositories are cloned. The workspace path is
 - Add hooks into the agent to detect if it's working or pending
 - Navigation actions in watch (enter to jump to window, r to remove, s to start)
 - Web UI for watch
+
+## Known issues
+
+- Long delay between popup closing and agent creation
+- Error message when removing a worktree
+- Error message display breaks the layout
+- Stale worktree confirmation breaks layout — replace stdin prompt with TUI popup

@@ -10,18 +10,18 @@ import (
 var updateStatusCmd = &cobra.Command{
 	Use:   "update-status",
 	Short: "Update the status of a tracked agent",
-	Long: `Update the status of a tracked agent by its worktree path.
+	Long: `Update the status of a tracked agent by its pane PID.
 
 This command is meant to be called by coding agent hooks (e.g. opencode plugins),
 not directly by the user.
 
 Valid statuses: idle, working, waiting, exited`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		worktree, _ := cmd.Flags().GetString("worktree")
+		panePID, _ := cmd.Flags().GetString("pane-pid")
 		status, _ := cmd.Flags().GetString("status")
 
-		if worktree == "" {
-			return fmt.Errorf("--worktree is required")
+		if panePID == "" {
+			return fmt.Errorf("--pane-pid is required")
 		}
 		if status == "" {
 			return fmt.Errorf("--status is required")
@@ -30,9 +30,12 @@ Valid statuses: idle, working, waiting, exited`,
 			return fmt.Errorf("invalid status %q (valid: idle, working, waiting, exited)", status)
 		}
 
-		a, err := dataStore.GetByWorktree(worktree)
+		a, err := dataStore.GetByPanePID(panePID)
 		if err != nil {
-			return err
+			// Silently exit when no tracked agent matches this pane PID.
+			// This happens when opencode runs outside a managed worktree
+			// (e.g. directly in a repo, not via "agents start").
+			return nil
 		}
 
 		a.Status = agent.Status(status)
@@ -46,7 +49,7 @@ Valid statuses: idle, working, waiting, exited`,
 }
 
 func init() {
-	updateStatusCmd.Flags().String("worktree", "", "worktree path of the agent")
+	updateStatusCmd.Flags().String("pane-pid", "", "pane PID of the agent")
 	updateStatusCmd.Flags().String("status", "", "new status (idle, working, waiting, exited)")
 	rootCmd.AddCommand(updateStatusCmd)
 }

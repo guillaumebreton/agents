@@ -12,16 +12,23 @@ import (
 type Config struct {
 	// Workspace is the root directory where all repositories live.
 	Workspace string `json:"workspace"`
+
+	// BranchPrefix is an optional prefix applied to all created worktree branches.
+	// e.g. "guillaumebreton/" → branch "my-feature" becomes "guillaumebreton/my-feature".
+	BranchPrefix string `json:"branch_prefix,omitempty"`
 }
 
 var configPath string
 
+// current is the in-memory cache. Nil means not yet loaded.
+var current *Config
+
 func init() {
-	configDir, err := os.UserConfigDir()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		panic(fmt.Sprintf("unable to determine config directory: %v", err))
+		panic(fmt.Sprintf("unable to determine home directory: %v", err))
 	}
-	configPath = filepath.Join(configDir, "agents", "config.json")
+	configPath = filepath.Join(home, ".config", "agents", "config.json")
 }
 
 // Path returns the path to the config file.
@@ -35,8 +42,77 @@ func Exists() bool {
 	return err == nil
 }
 
-// Init creates a default config file at the config path using cwd as the
-// workspace. Returns an error if the config already exists.
+// Get returns the cached config, loading from disk on the first call.
+func Get() (Config, error) {
+	if current != nil {
+		return *current, nil
+	}
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	current = &cfg
+	return cfg, nil
+}
+
+// Workspace returns the configured workspace path.
+func Workspace() (string, error) {
+	cfg, err := Get()
+	if err != nil {
+		return "", err
+	}
+	return cfg.Workspace, nil
+}
+
+// BranchPrefix returns the configured branch prefix, or empty string if not set.
+func BranchPrefix() string {
+	cfg, err := Get()
+	if err != nil {
+		return ""
+	}
+	return cfg.BranchPrefix
+}
+
+// Save writes cfg to disk and updates the in-memory cache.
+func Save(cfg Config) error {
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling config: %w", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		return err
+	}
+	current = &cfg
+	return nil
+}
+
+// SaveConfig persists the workspace and branch prefix together.
+func SaveConfig(workspace, branchPrefix string) error {
+	cfg, err := Get()
+	if err != nil {
+		return err
+	}
+	cfg.Workspace = workspace
+	cfg.BranchPrefix = branchPrefix
+	return Save(cfg)
+}
+
+// SaveWorkspace persists the given directory as the workspace.
+func SaveWorkspace(dir string) error {
+	cfg, err := Get()
+	if err != nil {
+		return err
+	}
+	cfg.Workspace = dir
+	return Save(cfg)
+}
+
+// Init creates a default config file using cwd as the workspace.
+// Returns an error if the config already exists.
 func Init() error {
 	if Exists() {
 		return fmt.Errorf("config already exists at %s", configPath)
@@ -45,15 +121,12 @@ func Init() error {
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
-	cfg := Config{
-		Workspace: cwd,
-	}
-	return Save(cfg)
+	return Save(Config{Workspace: cwd})
 }
 
-// Load reads the config from disk. Returns an empty Config if the file
+// load reads the config from disk. Returns an empty Config if the file
 // does not exist yet.
-func Load() (Config, error) {
+func load() (Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -66,41 +139,4 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("parsing config: %w", err)
 	}
 	return cfg, nil
-}
-
-// Save writes the config to disk.
-func Save(cfg Config) error {
-	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling config: %w", err)
-	}
-	return os.WriteFile(configPath, data, 0o644)
-}
-
-// Workspace returns the configured workspace path. If not set, it
-// initializes it to cwd and persists it.
-func Workspace() (string, error) {
-	cfg, err := Load()
-	if err != nil {
-		return "", err
-	}
-	if cfg.Workspace != "" {
-		return cfg.Workspace, nil
-	}
-
-	// First run — set workspace to cwd.
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("getting working directory: %w", err)
-	}
-	cfg.Workspace = cwd
-	if err := Save(cfg); err != nil {
-		return "", fmt.Errorf("saving config: %w", err)
-	}
-	fmt.Printf("workspace set to %s\n", cwd)
-	return cwd, nil
 }

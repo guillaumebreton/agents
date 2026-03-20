@@ -13,6 +13,9 @@ type Store interface {
 	// GetByWorktree returns a single agent by its worktree path.
 	GetByWorktree(worktree string) (agent.Agent, error)
 
+	// GetByPanePID returns a single agent by its pane PID.
+	GetByPanePID(pid string) (agent.Agent, error)
+
 	// Save persists an agent (creates or updates).
 	Save(a agent.Agent) error
 

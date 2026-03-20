@@ -126,6 +126,14 @@ func (t *Tmux) WindowIDForPane(paneID string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func (t *Tmux) SelectWindow(windowID string) error {
+	cmd := exec.Command("tmux", "select-window", "-t", windowID)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("selecting window %q: %s: %w", windowID, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 func (t *Tmux) SendCommand(windowID string, command string) error {
 	log.Debug("sending command", "window", windowID, "command", command)
 	cmd := exec.Command("tmux", "send-keys", "-t", windowID, command, "Enter")

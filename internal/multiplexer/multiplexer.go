@@ -41,4 +41,7 @@ type Multiplexer interface {
 
 	// SendCommand sends a shell command to the given window.
 	SendCommand(windowID string, command string) error
+
+	// SelectWindow switches focus to the given window.
+	SelectWindow(windowID string) error
 }
