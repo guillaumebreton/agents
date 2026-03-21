@@ -20,7 +20,7 @@ coding agent hooks for status reporting.
 Sets the current directory as the workspace.
 The config is written to ~/.config/agents/config.json.
 
-Hooks are installed for all supported coding agents (currently: opencode).
+Hooks are installed for all supported coding agents (currently: opencode, pi).
 Re-run init after upgrading agents to update hooks to the latest version.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Config.

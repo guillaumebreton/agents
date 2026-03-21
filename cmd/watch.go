@@ -316,8 +316,9 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.Focus()
 			if repo != "" && branch != "" {
 				notifCmd := m.notify("Starting agent…", notifInfo)
+				agentType := config.DefaultAgentName()
 				startCmd := func() tea.Msg {
-					return agentStartedMsg{err: ctl.Start(repo, branch, "opencode")}
+					return agentStartedMsg{err: ctl.Start(repo, branch, agentType)}
 				}
 				return m, tea.Batch(tickCmd(), notifCmd, startCmd, waitProgressCmd())
 			}

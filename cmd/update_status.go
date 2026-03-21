@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"notb.re/agents/internal/agent"
+	"notb.re/agents/internal/notify"
 )
 
 var updateStatusCmd = &cobra.Command{
@@ -38,9 +39,19 @@ Valid statuses: idle, working, waiting, exited`,
 			return nil
 		}
 
+		oldStatus := a.Status
 		a.Status = agent.Status(status)
 		if err := dataStore.Save(a); err != nil {
 			return err
+		}
+
+		// Fire a desktop notification on transitions that need human attention.
+		newStatus := agent.Status(status)
+		switch {
+		case oldStatus == agent.StatusWorking && newStatus == agent.StatusIdle:
+			notify.Send("Agents", fmt.Sprintf("%s finished", a.Name))
+		case newStatus == agent.StatusWaiting && oldStatus != agent.StatusWaiting:
+			notify.Send("Agents", fmt.Sprintf("%s is waiting for input", a.Name))
 		}
 
 		fmt.Printf("updated %q status to %s\n", a.Name, status)

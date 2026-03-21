@@ -16,6 +16,10 @@ type Config struct {
 	// BranchPrefix is an optional prefix applied to all created worktree branches.
 	// e.g. "guillaumebreton/" → branch "my-feature" becomes "guillaumebreton/my-feature".
 	BranchPrefix string `json:"branch_prefix,omitempty"`
+
+	// DefaultAgent is the coding agent used when none is specified with --agent.
+	// Defaults to "opencode" when empty.
+	DefaultAgent string `json:"default_agent,omitempty"`
 }
 
 var configPath string
@@ -73,6 +77,23 @@ func BranchPrefix() string {
 	return cfg.BranchPrefix
 }
 
+// DefaultAgentName returns the configured default coding agent name.
+// Falls back to "opencode" when no default has been set.
+func DefaultAgentName() string {
+	cfg, err := Get()
+	if err != nil || cfg.DefaultAgent == "" {
+		return "opencode"
+	}
+	return cfg.DefaultAgent
+}
+
+// Load reads the config from disk without using the in-memory cache.
+// Useful for tests and one-shot reads that must not be influenced by
+// a previously cached value.
+func Load() (Config, error) {
+	return load()
+}
+
 // Save writes cfg to disk and updates the in-memory cache.
 func Save(cfg Config) error {
 	dir := filepath.Dir(configPath)
@@ -90,14 +111,15 @@ func Save(cfg Config) error {
 	return nil
 }
 
-// SaveConfig persists the workspace and branch prefix together.
-func SaveConfig(workspace, branchPrefix string) error {
+// SaveConfig persists the workspace, branch prefix, and default agent together.
+func SaveConfig(workspace, branchPrefix, defaultAgent string) error {
 	cfg, err := Get()
 	if err != nil {
 		return err
 	}
 	cfg.Workspace = workspace
 	cfg.BranchPrefix = branchPrefix
+	cfg.DefaultAgent = defaultAgent
 	return Save(cfg)
 }
 

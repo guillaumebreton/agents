@@ -70,6 +70,7 @@ func runSetup() error {
 	choice := optCurrent
 	customPath := ""
 	branchPrefix := ""
+	defaultAgent := "opencode"
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -108,6 +109,16 @@ func runSetup() error {
 				Description(`Prefix added to every created branch, e.g. "agent/".`).
 				Value(&branchPrefix),
 		),
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Default coding agent").
+				Description("Used when --agent is not specified on the command line.").
+				Options(
+					huh.NewOption("opencode", "opencode"),
+					huh.NewOption("pi", "pi"),
+				).
+				Value(&defaultAgent),
+		),
 	)
 
 	if err := form.Run(); err != nil {
@@ -124,7 +135,7 @@ func runSetup() error {
 		workspace = expandTilde(customPath)
 	}
 
-	if err := config.SaveConfig(workspace, branchPrefix); err != nil {
+	if err := config.SaveConfig(workspace, branchPrefix, defaultAgent); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 

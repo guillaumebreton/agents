@@ -8,11 +8,14 @@ import (
 
 func withTempConfig(t *testing.T) func() {
 	t.Helper()
-	original := configPath
+	originalPath := configPath
+	originalCache := current
+	current = nil
 	dir := t.TempDir()
 	configPath = filepath.Join(dir, "config.json")
 	return func() {
-		configPath = original
+		configPath = originalPath
+		current = originalCache
 	}
 }
 
@@ -80,6 +83,24 @@ func TestInit(t *testing.T) {
 	}
 }
 
+func TestDefaultAgentName(t *testing.T) {
+	cleanup := withTempConfig(t)
+	defer cleanup()
+
+	// Falls back to "opencode" when not configured.
+	if got := DefaultAgentName(); got != "opencode" {
+		t.Errorf("expected default agent 'opencode', got %q", got)
+	}
+
+	// Returns the configured value when set.
+	if err := Save(Config{Workspace: "/ws", DefaultAgent: "pi"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := DefaultAgentName(); got != "pi" {
+		t.Errorf("expected default agent 'pi', got %q", got)
+	}
+}
+
 func TestInitAlreadyExists(t *testing.T) {
 	cleanup := withTempConfig(t)
 	defer cleanup()
@@ -92,25 +113,28 @@ func TestInitAlreadyExists(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAutoInit(t *testing.T) {
+func TestWorkspace(t *testing.T) {
 	cleanup := withTempConfig(t)
 	defer cleanup()
 
+	// No config file yet — workspace should be empty, not an error.
 	ws, err := Workspace()
 	if err != nil {
-		t.Fatalf("Workspace: %v", err)
+		t.Fatalf("Workspace (no config): %v", err)
 	}
-	cwd, _ := os.Getwd()
-	if ws != cwd {
-		t.Errorf("expected workspace %q, got %q", cwd, ws)
+	if ws != "" {
+		t.Errorf("expected empty workspace before init, got %q", ws)
 	}
 
-	// Second call should return persisted value.
+	// After saving, Workspace should return the persisted value.
+	if err := Save(Config{Workspace: "/my/workspace"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
 	ws2, err := Workspace()
 	if err != nil {
-		t.Fatalf("Workspace (second call): %v", err)
+		t.Fatalf("Workspace (after save): %v", err)
 	}
-	if ws2 != cwd {
-		t.Errorf("expected workspace %q, got %q", cwd, ws2)
+	if ws2 != "/my/workspace" {
+		t.Errorf("expected workspace '/my/workspace', got %q", ws2)
 	}
 }
