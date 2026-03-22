@@ -51,6 +51,6 @@ func List() []string {
 // Default is the name of the default coding agent.
 const Default = "opencode"
 
-// HookVersion is embedded in generated hook files so we can detect
-// when a hook needs to be updated after an agents upgrade.
+// HookVersion is embedded as a comment in generated hook files for
+// human-readable identification of which agents build produced them.
 var HookVersion = "dev"

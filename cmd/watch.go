@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	"notb.re/agents/internal/agentctl"
 	"notb.re/agents/internal/config"
 )
 
@@ -104,19 +103,19 @@ func notifClearCmd(d time.Duration) tea.Cmd {
 }
 
 type watchModel struct {
-	table         table.Model
-	agentNames    []string // canonical agent names indexed by row, used for all lookups
-	width         int
-	height        int
-	err           error
-	confirming    bool   // true when showing delete confirmation
-	confirmName   string // name of the agent to delete
-	adding        bool   // true when the add popup is open
-	addForm       *huh.Form
-	addRepo       *string // heap-allocated so huh can write back through the pointer
-	addBranch     *string // heap-allocated so huh can write back through the pointer
-	notif         *notification
-	staleWorktree *agentctl.ErrStaleWorktree // non-nil when awaiting stale worktree confirmation
+	table       table.Model
+	agentNames  []string // canonical agent names indexed by row, used for all lookups
+	width       int
+	height      int
+	err         error
+	confirming  bool   // true when showing delete confirmation
+	confirmName string // name of the agent to delete
+	adding      bool   // true when the add popup is open
+	addForm     *huh.Form
+	addMode     *string // "repo" or "path"
+	addRepo     *string // heap-allocated so huh can write back through the pointer
+	addDir      *string // heap-allocated so huh can write back through the pointer
+	notif       *notification
 }
 
 func newWatchModel() watchModel {
@@ -147,18 +146,18 @@ func tableStyles(width int) table.Styles {
 func buildColumns(width int) []table.Column {
 	agentTypeW := 12
 	statusW := 12
-	fixed := agentTypeW + statusW
-	remaining := width - fixed - 8 // padding allowance (2 per column × 4 extra columns)
+	gitW := 5
+	fixed := agentTypeW + statusW + gitW
+	remaining := width - fixed - 10 // padding allowance
 	remaining = max(remaining, 20)
-	nameW := remaining * 25 / 100
-	repoW := remaining * 25 / 100
-	worktreeW := remaining - nameW - repoW
+	nameW := remaining * 35 / 100
+	dirW := remaining - nameW
 
 	return []table.Column{
 		{Title: "Name", Width: nameW},
 		{Title: "Agent", Width: agentTypeW},
-		{Title: "Repository", Width: repoW},
-		{Title: "Worktree", Width: worktreeW},
+		{Title: "Workdir", Width: dirW},
+		{Title: "Git", Width: gitW},
 		{Title: "Status", Width: statusW},
 	}
 }
@@ -206,8 +205,11 @@ func (m *watchModel) refreshRows() {
 			}
 		}
 		names = append(names, a.Name)
-		repo, wt := splitWorktree(a.WorktreePath)
-		rows = append(rows, table.Row{a.Name, a.AgentType, repo, wt, status})
+		gitFlag := ""
+		if a.IsGitRepo {
+			gitFlag = "✓"
+		}
+		rows = append(rows, table.Row{a.Name, a.AgentType, workdirLabel(a.WorkdirPath), gitFlag, status})
 	}
 
 	m.agentNames = names
@@ -249,7 +251,8 @@ func (m *watchModel) notifyProgress(msg string) {
 }
 
 // newAddForm builds a fresh huh form for adding an agent.
-func newAddForm(repo *string, branch *string) *huh.Form {
+// mode must point to either "repo" (workspace repository) or "path" (custom directory).
+func newAddForm(mode *string, repo *string, dir *string) *huh.Form {
 	repos := listRepos()
 	opts := make([]huh.Option[string], len(repos))
 	for i, r := range repos {
@@ -260,23 +263,49 @@ func newAddForm(repo *string, branch *string) *huh.Form {
 	}
 
 	return huh.NewForm(
+		// Page 1: choose source.
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Workdir source").
+				Description("Where should the agent work?").
+				Options(
+					huh.NewOption("Workspace repository", "repo"),
+					huh.NewOption("Custom path", "path"),
+				).
+				Value(mode),
+		),
+		// Page 2a: workspace repo selector (hidden when mode=path).
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Repository").
-				Description("Select a repository in the workspace").
+				Description("Select a repository from the workspace").
 				Options(opts...).
 				Value(repo),
+		).WithHideFunc(func() bool { return *mode != "repo" }),
+		// Page 2b: custom path input (hidden when mode=repo).
+		huh.NewGroup(
 			huh.NewInput().
-				Title("Branch name").
-				Description("Enter the branch to work on (new or existing)").
-				Value(branch).
+				Title("Directory path").
+				Description("Absolute (or ~-prefixed) path to an existing directory").
+				Value(dir).
 				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("branch name cannot be empty")
+					if *mode != "path" {
+						return nil
+					}
+					expanded := expandTilde(strings.TrimSpace(s))
+					if expanded == "" {
+						return fmt.Errorf("path cannot be empty")
+					}
+					info, err := os.Stat(expanded)
+					if err != nil {
+						return fmt.Errorf("directory not found: %s", expanded)
+					}
+					if !info.IsDir() {
+						return fmt.Errorf("not a directory: %s", expanded)
 					}
 					return nil
 				}),
-		),
+		).WithHideFunc(func() bool { return *mode != "path" }),
 	).WithTheme(huh.ThemeDracula())
 }
 
@@ -310,19 +339,33 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.addForm.State == huh.StateCompleted {
 			m.adding = false
-			repo := *m.addRepo
-			branch := *m.addBranch
+			mode := *m.addMode
 			m.addForm = nil
 			m.table.Focus()
-			if repo != "" && branch != "" {
-				notifCmd := m.notify("Starting agent…", notifInfo)
-				agentType := config.DefaultAgentName()
-				startCmd := func() tea.Msg {
-					return agentStartedMsg{err: ctl.Start(repo, branch, agentType)}
+
+			agentType := config.DefaultAgentName()
+			var name, dir string
+			if mode == "repo" {
+				repo := *m.addRepo
+				if repo == "" {
+					return m, tickCmd()
 				}
-				return m, tea.Batch(tickCmd(), notifCmd, startCmd, waitProgressCmd())
+				workspace, _ := config.Workspace()
+				name = repo
+				dir = filepath.Join(workspace, repo)
+			} else {
+				dir = expandTilde(strings.TrimSpace(*m.addDir))
+				if dir == "" {
+					return m, tickCmd()
+				}
+				// name left empty — Start derives it from the directory basename.
 			}
-			return m, tickCmd()
+
+			notifCmd := m.notify("Starting agent…", notifInfo)
+			startCmd := func() tea.Msg {
+				return agentStartedMsg{err: ctl.Start(name, dir, agentType)}
+			}
+			return m, tea.Batch(tickCmd(), notifCmd, startCmd, waitProgressCmd())
 		}
 		if m.addForm.State == huh.StateAborted {
 			m.adding = false
@@ -336,23 +379,6 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.staleWorktree != nil {
-			switch msg.String() {
-			case "y", "enter":
-				stale := m.staleWorktree
-				m.staleWorktree = nil
-				notifCmd := m.notify("Pruning stale worktree, retrying…", notifInfo)
-				startCmd := func() tea.Msg {
-					return agentStartedMsg{err: ctl.ForceStart(stale)}
-				}
-				return m, tea.Batch(notifCmd, startCmd, waitProgressCmd())
-			case "n", "esc":
-				m.staleWorktree = nil
-				return m, m.notify("Cancelled", notifInfo)
-			}
-			return m, nil
-		}
-
 		if m.confirming {
 			switch msg.String() {
 			case "y", "enter":
@@ -402,11 +428,13 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "s":
+			mode := "repo"
 			repo := ""
-			branch := ""
+			dir := ""
+			m.addMode = &mode
 			m.addRepo = &repo
-			m.addBranch = &branch
-			m.addForm = newAddForm(m.addRepo, m.addBranch)
+			m.addDir = &dir
+			m.addForm = newAddForm(m.addMode, m.addRepo, m.addDir)
 			m.adding = true
 			m.table.Blur()
 			return m, m.addForm.Init()
@@ -422,11 +450,6 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitProgressCmd()
 	case agentStartedMsg:
 		if msg.err != nil {
-			// Check for stale worktree — show a confirmation popup instead of an error.
-			if stale, ok := msg.err.(*agentctl.ErrStaleWorktree); ok {
-				m.staleWorktree = stale
-				return m, nil
-			}
 			return m, m.notify(msg.err.Error(), notifError)
 		}
 		m.refreshRows()
@@ -513,23 +536,6 @@ func (m watchModel) View() string {
 	}
 	base := sb.String()
 
-	if m.staleWorktree != nil {
-		popup := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorRed).
-			Padding(1, 3).
-			Bold(true).
-			Foreground(colorRed).
-			Render(fmt.Sprintf("Stale worktree registration found:\n%s\n\nPrune and recreate?\n\n  [y] Yes    [n] No", m.staleWorktree.WorktreePath))
-
-		return lipgloss.Place(m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			popup,
-			lipgloss.WithWhitespaceChars(" "),
-			lipgloss.WithWhitespaceForeground(colorBg),
-		)
-	}
-
 	if m.confirming {
 		popup := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -603,27 +609,17 @@ func renderGradientTitle(text string, width int) string {
 	return lipgloss.NewStyle().MarginBottom(1).Render(b.String())
 }
 
-// splitWorktree extracts the repository name and the worktree branch directory
-// from an absolute worktree path.  The repo is derived by stripping the
-// "_worktrees" suffix from the parent directory name.
-func splitWorktree(worktreePath string) (repo, worktree string) {
+// workdirLabel returns a display-friendly label for a workdir path.
+// Paths inside the workspace are shown relative to it; others are shown as-is.
+func workdirLabel(workdirPath string) string {
 	workspace, err := config.Workspace()
 	if err != nil {
-		return "", worktreePath
+		return workdirPath
 	}
-	rel, ok := strings.CutPrefix(worktreePath, workspace)
-	if !ok {
-		return "", worktreePath
+	if rel, ok := strings.CutPrefix(workdirPath, workspace+"/"); ok {
+		return rel
 	}
-	rel = strings.TrimPrefix(rel, "/")
-
-	parts := strings.SplitN(rel, "/", 2)
-	if len(parts) != 2 {
-		return "", rel
-	}
-	repo = strings.TrimSuffix(parts[0], "_worktrees")
-	worktree = parts[1]
-	return repo, worktree
+	return workdirPath
 }
 
 // listRepos returns the names of git repositories found directly inside the workspace.
@@ -639,10 +635,6 @@ func listRepos() []string {
 	var repos []string
 	for _, e := range entries {
 		if !e.IsDir() {
-			continue
-		}
-		// Skip worktree sibling directories (name ends with _worktrees).
-		if strings.HasSuffix(e.Name(), "_worktrees") {
 			continue
 		}
 		// Accept only directories that contain a .git entry.

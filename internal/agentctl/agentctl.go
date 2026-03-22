@@ -1,5 +1,5 @@
 // Package agentctl implements the core agent lifecycle operations:
-// starting (worktree creation, tmux window, agent launch) and removal.
+// starting (tmux window creation, agent launch) and removal.
 package agentctl
 
 import (
@@ -11,24 +11,9 @@ import (
 
 	"notb.re/agents/internal/agent"
 	"notb.re/agents/internal/coding"
-	"notb.re/agents/internal/config"
 	"notb.re/agents/internal/multiplexer"
 	"notb.re/agents/internal/store"
 )
-
-// ErrStaleWorktree is returned by Start when git reports a stale worktree
-// registration. The caller can prompt the user and retry with ForceStart.
-type ErrStaleWorktree struct {
-	Repo         string
-	Branch       string
-	AgentType    string
-	WorktreePath string
-	RepoPath     string
-}
-
-func (e *ErrStaleWorktree) Error() string {
-	return fmt.Sprintf("stale worktree registration found for %q — prune and recreate?", e.WorktreePath)
-}
 
 // Controller handles agent lifecycle using the provided store and multiplexer.
 type Controller struct {
@@ -46,106 +31,37 @@ func (c *Controller) progress(msg string) {
 	}
 }
 
-// AgentName returns the canonical identifier for an agent: repo/branch.
-func AgentName(repo, branch string) string {
-	return repo + "/" + branch
-}
-
-// Start starts an agent for the given repo and branch, creating a worktree and
-// tmux window if needed. If the agent is already tracked and its window is alive,
-// it returns an error.
-func (c *Controller) Start(repo, branch, agentType string) error {
-	if repo == "" {
-		return fmt.Errorf("repo is required")
-	}
-	if branch == "" {
-		return fmt.Errorf("branch is required")
+// Start starts an agent on dir, opening a tmux window if needed.
+// If name is empty, the base name of dir is used as the agent name.
+// Returns an error if an agent with that name is already running.
+func (c *Controller) Start(name, dir, agentType string) error {
+	if dir == "" {
+		return fmt.Errorf("dir is required")
 	}
 
-	// Resolve the full branch name (with prefix) before any lookup or creation,
-	// so the store key is always consistent.
-	prefix := config.BranchPrefix()
-	fullBranch := branch
-	if prefix != "" && !strings.HasPrefix(branch, prefix) {
-		fullBranch = prefix + branch
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolving directory: %w", err)
+	}
+	if _, err := os.Stat(abs); os.IsNotExist(err) {
+		return fmt.Errorf("directory %q does not exist", abs)
+	}
+	if name == "" {
+		name = filepath.Base(abs)
 	}
 
-	name := AgentName(repo, fullBranch)
+	// Re-attach to an existing tracked agent if one is found.
 	a, err := c.Store.Get(name)
-	if err != nil {
-		return c.startNew(repo, fullBranch, agentType)
-	}
-	return c.startExisting(a)
-}
-
-func (c *Controller) startNew(repo, branch, agentType string) error {
-	workspace, err := config.Workspace()
-	if err != nil {
-		return err
+	if err == nil {
+		return c.startExisting(a)
 	}
 
-	// branch is already fully qualified (prefix applied by Start).
-	fullBranch := branch
-
-	// 1. Check the repo exists.
-	repoPath := filepath.Join(workspace, repo)
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		return fmt.Errorf("repository %q not found in workspace", repo)
-	}
-
-	// 2. Check whether the branch already exists locally or remotely.
-	c.progress("Checking branch…")
-	branchExists := branchExistsInRepo(repoPath, fullBranch)
-
-	// 3. Resolve the worktree path.
-	worktreeDir := filepath.Join(workspace, repo+"_worktrees")
-	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
-		return fmt.Errorf("creating worktree directory: %w", err)
-	}
-	worktreePath := filepath.Join(worktreeDir, strings.ReplaceAll(fullBranch, "/", "-"))
-
-	// 4. Create the worktree if it doesn't exist.
-	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
-		c.progress("Creating worktree…")
-		if err := createWorktree(repoPath, worktreePath, fullBranch, branchExists); err != nil {
-			if strings.Contains(err.Error(), "already registered worktree") {
-				return &ErrStaleWorktree{
-					Repo:         repo,
-					Branch:       branch,
-					AgentType:    agentType,
-					WorktreePath: worktreePath,
-					RepoPath:     repoPath,
-				}
-			}
-			return err
-		}
-	}
-
-	a := agent.Agent{
-		Name:         AgentName(repo, fullBranch),
-		WorktreePath: worktreePath,
-		AgentType:    agentType,
-	}
-	return c.openWindowAndSave(a)
-}
-
-// ForceStart is called after the user confirms they want to prune a stale
-// worktree registration and retry. It receives the ErrStaleWorktree returned
-// by a previous Start call.
-func (c *Controller) ForceStart(e *ErrStaleWorktree) error {
-	pruneCmd := exec.Command("git", "worktree", "prune")
-	pruneCmd.Dir = e.RepoPath
-	pruneCmd.CombinedOutput()
-
-	branchExists := branchExistsInRepo(e.RepoPath, e.WorktreePath)
-	if err := createWorktree(e.RepoPath, e.WorktreePath, e.Branch, branchExists); err != nil {
-		return err
-	}
-
-	a := agent.Agent{
-		Name:         AgentName(e.Repo, e.Branch),
-		WorktreePath: e.WorktreePath,
-		AgentType:    e.AgentType,
+	c.progress("Detecting repository…")
+	a = agent.Agent{
+		Name:        name,
+		WorkdirPath: abs,
+		AgentType:   agentType,
+		IsGitRepo:   isGitRepo(abs),
 	}
 	return c.openWindowAndSave(a)
 }
@@ -165,23 +81,19 @@ func (c *Controller) startExisting(a agent.Agent) error {
 }
 
 func (c *Controller) openWindowAndSave(a agent.Agent) error {
-	workspace, err := config.Workspace()
-	if err != nil {
-		return err
-	}
-
 	exists, err := c.Mux.SessionExists(c.SessionName)
 	if err != nil {
 		return err
 	}
 	if !exists {
+		workspace := a.WorkdirPath
 		if err := c.Mux.CreateSession(c.SessionName, workspace); err != nil {
 			return err
 		}
 	}
 
 	c.progress("Opening tmux window…")
-	win, err := c.Mux.CreateWindow(c.SessionName, a.Name, a.WorktreePath)
+	win, err := c.Mux.CreateWindow(c.SessionName, a.Name, a.WorkdirPath)
 	if err != nil {
 		return err
 	}
@@ -200,8 +112,38 @@ func (c *Controller) openWindowAndSave(a agent.Agent) error {
 	return c.Store.Save(a)
 }
 
-// Remove kills the tmux window, removes the git worktree, and deletes the agent
-// from the store.
+// Adopt registers a pane that is already running an agent but was not started
+// through the controller. It is safe to call repeatedly for the same pane —
+// if the window ID is already tracked the call is a no-op.
+func (c *Controller) Adopt(windowID, panePID, workdir, agentType string) error {
+	// Skip if this window is already tracked under any name.
+	existing, _ := c.Store.List()
+	for _, a := range existing {
+		if a.WindowID == windowID {
+			return nil
+		}
+	}
+
+	// Derive a name from the workdir basename, disambiguating with the
+	// window ID if another agent already owns that name.
+	name := filepath.Base(workdir)
+	if _, err := c.Store.Get(name); err == nil {
+		name = name + "-" + windowID
+	}
+
+	a := agent.Agent{
+		Name:        name,
+		WorkdirPath: workdir,
+		AgentType:   agentType,
+		IsGitRepo:   isGitRepo(workdir),
+		WindowID:    windowID,
+		PanePID:     panePID,
+	}
+	return c.Store.Save(a)
+}
+
+// Remove kills the tmux window and deletes the agent from the store.
+// The working directory itself is never touched.
 func (c *Controller) Remove(a agent.Agent) error {
 	if a.WindowID != "" {
 		alive, err := c.Mux.WindowExists(a.WindowID)
@@ -215,59 +157,14 @@ func (c *Controller) Remove(a agent.Agent) error {
 		}
 	}
 
-	if a.WorktreePath != "" {
-		if _, err := os.Stat(a.WorktreePath); err == nil {
-			// git worktree remove must run from the main repo directory.
-			// Derive it: WorktreePath is <workspace>/<repo>_worktrees/<branch>,
-			// so the repo is the parent of the _worktrees dir.
-			repoPath := filepath.Dir(filepath.Dir(a.WorktreePath))
-			// Strip the _worktrees suffix to get the actual repo dir name.
-			worktreesDir := filepath.Dir(a.WorktreePath)
-			repoName := strings.TrimSuffix(filepath.Base(worktreesDir), "_worktrees")
-			repoPath = filepath.Join(filepath.Dir(worktreesDir), repoName)
-
-			gitCmd := exec.Command("git", "worktree", "remove", "--force", a.WorktreePath)
-			gitCmd.Dir = repoPath
-			if out, err := gitCmd.CombinedOutput(); err != nil {
-				// Fall back to plain directory removal.
-				if rmErr := os.RemoveAll(a.WorktreePath); rmErr != nil {
-					return fmt.Errorf("removing worktree: %s", strings.TrimSpace(string(out)))
-				}
-			}
-		}
-	}
-
 	return c.Store.Delete(a.Name)
 }
 
-// branchExistsInRepo checks whether branch exists locally or on origin,
-// running both checks in parallel.
-func branchExistsInRepo(repoPath, branch string) bool {
-	check := func(ref string) bool {
-		cmd := exec.Command("git", "rev-parse", "--verify", ref)
-		cmd.Dir = repoPath
-		cmd.Stderr = &strings.Builder{}
-		return cmd.Run() == nil
-	}
-
-	localCh := make(chan bool, 1)
-	remoteCh := make(chan bool, 1)
-	go func() { localCh <- check(branch) }()
-	go func() { remoteCh <- check("origin/" + branch) }()
-	return <-localCh || <-remoteCh
-}
-
-func createWorktree(repoPath, worktreePath, branch string, branchExists bool) error {
-	var cmd *exec.Cmd
-	// TODO we don't want to reuse worktree??
-	if branchExists {
-		cmd = exec.Command("git", "worktree", "add", worktreePath, branch)
-	} else {
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
-	}
-	cmd.Dir = repoPath
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree add: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+// isGitRepo reports whether dir is inside a git repository by running
+// "git rev-parse --is-inside-work-tree".
+func isGitRepo(dir string) bool {
+	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) == "true"
 }

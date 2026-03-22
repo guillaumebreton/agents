@@ -24,7 +24,11 @@ type state struct {
 
 // NewJSONStore creates a new JSONStore that reads/writes to
 // ~/.config/agent/state.json, creating the directory if needed.
+// Set AGENTS_STATE_FILE to override the path (useful for tests).
 func NewJSONStore() (*JSONStore, error) {
+	if custom := os.Getenv("AGENTS_STATE_FILE"); custom != "" {
+		return &JSONStore{path: custom}, nil
+	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("unable to determine config directory: %w", err)
@@ -95,7 +99,7 @@ func (s *JSONStore) Get(name string) (agent.Agent, error) {
 	return a, nil
 }
 
-func (s *JSONStore) GetByWorktree(worktree string) (agent.Agent, error) {
+func (s *JSONStore) GetByWorkdir(workdir string) (agent.Agent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -104,11 +108,11 @@ func (s *JSONStore) GetByWorktree(worktree string) (agent.Agent, error) {
 		return agent.Agent{}, err
 	}
 	for _, a := range st.Agents {
-		if a.WorktreePath == worktree {
+		if a.WorkdirPath == workdir {
 			return a, nil
 		}
 	}
-	return agent.Agent{}, fmt.Errorf("no agent found for worktree %q", worktree)
+	return agent.Agent{}, fmt.Errorf("no agent found for workdir %q", workdir)
 }
 
 func (s *JSONStore) GetByPanePID(pid string) (agent.Agent, error) {

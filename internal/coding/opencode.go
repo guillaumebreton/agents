@@ -38,6 +38,8 @@ func (o *OpenCode) Hook(agentsBinary string) string {
 export const AgentsPlugin = async ({ worktree, $ }) => {
   const agents = %q;
   const panePid = String(process.ppid);
+  const paneId = process.env.TMUX_PANE ?? "";
+  const workdir = process.cwd();
 
   let lastStatus = "";
   const update = async (status) => {
@@ -50,7 +52,12 @@ export const AgentsPlugin = async ({ worktree, $ }) => {
     }
   };
 
-  // Report idle on startup.
+  // Register with the watcher and report idle on startup.
+  try {
+    await $`+"`"+`${agents} register --pane-id ${paneId} --workdir ${workdir} --agent-type opencode`+"`"+`;
+  } catch (e) {
+    // Silently ignore — agents might not be running.
+  }
   await update("idle");
 
   return {

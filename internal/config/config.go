@@ -13,10 +13,6 @@ type Config struct {
 	// Workspace is the root directory where all repositories live.
 	Workspace string `json:"workspace"`
 
-	// BranchPrefix is an optional prefix applied to all created worktree branches.
-	// e.g. "guillaumebreton/" → branch "my-feature" becomes "guillaumebreton/my-feature".
-	BranchPrefix string `json:"branch_prefix,omitempty"`
-
 	// DefaultAgent is the coding agent used when none is specified with --agent.
 	// Defaults to "opencode" when empty.
 	DefaultAgent string `json:"default_agent,omitempty"`
@@ -28,6 +24,11 @@ var configPath string
 var current *Config
 
 func init() {
+	// Allow tests (and power users) to override the config file location.
+	if custom := os.Getenv("AGENTS_CONFIG_FILE"); custom != "" {
+		configPath = custom
+		return
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		panic(fmt.Sprintf("unable to determine home directory: %v", err))
@@ -68,15 +69,6 @@ func Workspace() (string, error) {
 	return cfg.Workspace, nil
 }
 
-// BranchPrefix returns the configured branch prefix, or empty string if not set.
-func BranchPrefix() string {
-	cfg, err := Get()
-	if err != nil {
-		return ""
-	}
-	return cfg.BranchPrefix
-}
-
 // DefaultAgentName returns the configured default coding agent name.
 // Falls back to "opencode" when no default has been set.
 func DefaultAgentName() string {
@@ -111,14 +103,13 @@ func Save(cfg Config) error {
 	return nil
 }
 
-// SaveConfig persists the workspace, branch prefix, and default agent together.
-func SaveConfig(workspace, branchPrefix, defaultAgent string) error {
+// SaveConfig persists the workspace and default agent together.
+func SaveConfig(workspace, defaultAgent string) error {
 	cfg, err := Get()
 	if err != nil {
 		return err
 	}
 	cfg.Workspace = workspace
-	cfg.BranchPrefix = branchPrefix
 	cfg.DefaultAgent = defaultAgent
 	return Save(cfg)
 }

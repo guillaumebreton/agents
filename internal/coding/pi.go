@@ -41,6 +41,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 export default function (pi: ExtensionAPI) {
   const agents = %q;
   const panePid = String(process.ppid);
+  const paneId = process.env.TMUX_PANE ?? "";
+  const workdir = process.cwd();
 
   let lastStatus = "";
   const update = async (status: string) => {
@@ -53,8 +55,13 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  // Report idle on startup.
+  // Register with the watcher and report idle on startup.
   pi.on("session_start", async (_event, _ctx) => {
+    try {
+      await pi.exec(agents, ["register", "--pane-id", paneId, "--workdir", workdir, "--agent-type", "pi"]);
+    } catch {
+      // Silently ignore — agents might not be running.
+    }
     await update("idle");
   });
 

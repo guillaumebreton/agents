@@ -44,4 +44,8 @@ type Multiplexer interface {
 
 	// SelectWindow switches focus to the given window.
 	SelectWindow(windowID string) error
+
+	// PaneInfo resolves a tmux pane ID (e.g. "%3") to the window ID that
+	// contains it and the pane's shell PID. Used by the register command.
+	PaneInfo(paneID string) (windowID, panePID string, err error)
 }

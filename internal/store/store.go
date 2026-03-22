@@ -10,8 +10,8 @@ type Store interface {
 	// Get returns a single agent by name.
 	Get(name string) (agent.Agent, error)
 
-	// GetByWorktree returns a single agent by its worktree path.
-	GetByWorktree(worktree string) (agent.Agent, error)
+	// GetByWorkdir returns a single agent by its working directory path.
+	GetByWorkdir(workdir string) (agent.Agent, error)
 
 	// GetByPanePID returns a single agent by its pane PID.
 	GetByPanePID(pid string) (agent.Agent, error)

@@ -69,7 +69,6 @@ func runSetup() error {
 
 	choice := optCurrent
 	customPath := ""
-	branchPrefix := ""
 	defaultAgent := "opencode"
 
 	form := huh.NewForm(
@@ -104,12 +103,6 @@ func runSetup() error {
 				}),
 		).WithHideFunc(func() bool { return choice != optCustom }),
 		huh.NewGroup(
-			huh.NewInput().
-				Title("Branch prefix (optional)").
-				Description(`Prefix added to every created branch, e.g. "agent/".`).
-				Value(&branchPrefix),
-		),
-		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default coding agent").
 				Description("Used when --agent is not specified on the command line.").
@@ -135,7 +128,7 @@ func runSetup() error {
 		workspace = expandTilde(customPath)
 	}
 
-	if err := config.SaveConfig(workspace, branchPrefix, defaultAgent); err != nil {
+	if err := config.SaveConfig(workspace, defaultAgent); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
@@ -146,7 +139,7 @@ func runSetup() error {
 var rootCmd = &cobra.Command{
 	Use:   "agents",
 	Short: "Simple agent watcher for coding agents",
-	Long:  "A CLI tool that manages coding agents in terminal multiplexer sessions, handling git worktrees and agent lifecycle.",
+	Long:  "A CLI tool that manages coding agents in terminal multiplexer sessions.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if debug {
 			log.SetLevel(log.DebugLevel)

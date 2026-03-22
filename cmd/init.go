@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"notb.re/agents/internal/coding"
@@ -14,14 +13,14 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize the agents configuration and install hooks",
-	Long: `Create the default configuration file if it doesn't exist and install
-coding agent hooks for status reporting.
+	Long: `Create the default configuration file if it doesn't exist and
+(re)install coding agent hooks for status reporting.
 
 Sets the current directory as the workspace.
 The config is written to ~/.config/agents/config.json.
 
-Hooks are installed for all supported coding agents (currently: opencode, pi).
-Re-run init after upgrading agents to update hooks to the latest version.`,
+Hooks are always overwritten, so re-running init after upgrading agents
+is all that is needed to pick up the latest hook content.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Config.
 		if config.Exists() {
@@ -39,7 +38,7 @@ Re-run init after upgrading agents to update hooks to the latest version.`,
 			return fmt.Errorf("resolving executable path: %w", err)
 		}
 
-		// Install hooks for all registered coding agents.
+		// (Re)install hooks for all registered coding agents.
 		for _, name := range coding.List() {
 			ca, _ := coding.Get(name)
 
@@ -52,22 +51,13 @@ Re-run init after upgrading agents to update hooks to the latest version.`,
 				continue
 			}
 
-			// Check if hook needs updating by comparing version.
-			if existing, err := os.ReadFile(hookPath); err == nil {
-				if strings.Contains(string(existing), "Version: "+coding.HookVersion) {
-					fmt.Printf("%s hook is up to date (%s)\n", name, hookPath)
-					continue
-				}
-			}
-
-			// Install or update the hook.
 			if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
 				return fmt.Errorf("creating hook directory: %w", err)
 			}
 			if err := os.WriteFile(hookPath, []byte(hookContent), 0o644); err != nil {
 				return fmt.Errorf("writing %s hook: %w", name, err)
 			}
-			fmt.Printf("%s hook installed at %s (version: %s)\n", name, hookPath, coding.HookVersion)
+			fmt.Printf("%s hook installed at %s\n", name, hookPath)
 		}
 
 		return nil

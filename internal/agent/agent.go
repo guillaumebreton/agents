@@ -19,17 +19,23 @@ func ValidStatus(s string) bool {
 	return false
 }
 
-// Agent represents a coding agent tied to a worktree and a
+// Agent represents a coding agent tied to a working directory and a
 // terminal multiplexer window.
 type Agent struct {
-	// Name is a human-friendly identifier, typically the repo name.
+	// Name is a human-friendly identifier for the agent.
 	Name string `json:"name"`
 
-	// WorktreePath is the absolute path to the git worktree.
-	WorktreePath string `json:"worktree_path"`
+	// WorkdirPath is the absolute path to the directory the agent works in.
+	// The JSON key is kept as "worktree_path" for backward compatibility with
+	// existing state files.
+	WorkdirPath string `json:"worktree_path"`
 
 	// AgentType is the shorthand name of the coding agent (e.g. "opencode").
 	AgentType string `json:"agent_type"`
+
+	// IsGitRepo records whether WorkdirPath was detected as a git repository
+	// at agent-creation time.
+	IsGitRepo bool `json:"is_git_repo,omitempty"`
 
 	// Status is the last reported status of the coding agent.
 	Status Status `json:"status,omitempty"`

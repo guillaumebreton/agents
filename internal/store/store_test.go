@@ -17,7 +17,7 @@ func testStore(t *testing.T) *JSONStore {
 func TestSaveAndGet(t *testing.T) {
 	s := testStore(t)
 
-	a := agent.Agent{Name: "myrepo", WorktreePath: "/tmp/myrepo", AgentType: "opencode"}
+	a := agent.Agent{Name: "myrepo", WorkdirPath: "/tmp/myrepo", AgentType: "opencode"}
 	if err := s.Save(a); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -29,8 +29,8 @@ func TestSaveAndGet(t *testing.T) {
 	if got.Name != "myrepo" {
 		t.Errorf("expected name 'myrepo', got %q", got.Name)
 	}
-	if got.WorktreePath != "/tmp/myrepo" {
-		t.Errorf("expected worktree '/tmp/myrepo', got %q", got.WorktreePath)
+	if got.WorkdirPath != "/tmp/myrepo" {
+		t.Errorf("expected workdir '/tmp/myrepo', got %q", got.WorkdirPath)
 	}
 	if got.AgentType != "opencode" {
 		t.Errorf("expected agent type 'opencode', got %q", got.AgentType)
@@ -98,12 +98,12 @@ func TestDeleteNotFound(t *testing.T) {
 func TestSaveUpdate(t *testing.T) {
 	s := testStore(t)
 
-	s.Save(agent.Agent{Name: "myrepo", WorktreePath: "/old"})
-	s.Save(agent.Agent{Name: "myrepo", WorktreePath: "/new"})
+	s.Save(agent.Agent{Name: "myrepo", WorkdirPath: "/old"})
+	s.Save(agent.Agent{Name: "myrepo", WorkdirPath: "/new"})
 
 	got, _ := s.Get("myrepo")
-	if got.WorktreePath != "/new" {
-		t.Errorf("expected updated worktree '/new', got %q", got.WorktreePath)
+	if got.WorkdirPath != "/new" {
+		t.Errorf("expected updated workdir '/new', got %q", got.WorkdirPath)
 	}
 }
 

@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/cmd.Date=$(DATE) \
 	-X $(MODULE)/internal/coding.HookVersion=$(VERSION)
 
-.PHONY: build run clean install test dev
+.PHONY: build run clean install test test-integration dev
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -25,6 +25,12 @@ install:
 
 test:
 	go test ./...
+
+# test-integration builds the binary and runs the hook integration tests.
+# These tests validate the full register → update-status flow without needing
+# a live tmux session or a running coding agent.
+test-integration:
+	go test -v -run 'TestHook' ./cmd/
 
 dev:
 	air

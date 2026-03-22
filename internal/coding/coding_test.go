@@ -67,6 +67,51 @@ func TestPiHookContent(t *testing.T) {
 	if !strings.Contains(hook, `@mariozechner/pi-coding-agent`) {
 		t.Error("hook content missing pi extension API import")
 	}
+	// Must call register on startup.
+	if !strings.Contains(hook, `"register"`) {
+		t.Error("pi hook missing register call")
+	}
+	// Must pass TMUX_PANE for window resolution.
+	if !strings.Contains(hook, "TMUX_PANE") {
+		t.Error("pi hook missing TMUX_PANE reference")
+	}
+	// Must pass workdir (cwd) to register.
+	if !strings.Contains(hook, "workdir") {
+		t.Error("pi hook missing workdir argument to register")
+	}
+}
+
+func TestOpenCodeHookContent(t *testing.T) {
+	ca, err := Get("opencode")
+	if err != nil {
+		t.Fatalf("expected opencode to be registered: %v", err)
+	}
+	hook := ca.Hook("/usr/local/bin/agents")
+	if hook == "" {
+		t.Fatal("expected non-empty hook content for opencode")
+	}
+	if !strings.Contains(hook, "Version: "+HookVersion) {
+		t.Errorf("hook content missing version marker %q", HookVersion)
+	}
+	if !strings.Contains(hook, "/usr/local/bin/agents") {
+		t.Error("opencode hook missing agents binary path")
+	}
+	// Must call register on startup.
+	if !strings.Contains(hook, "register") {
+		t.Error("opencode hook missing register call")
+	}
+	// Must pass TMUX_PANE for window resolution.
+	if !strings.Contains(hook, "TMUX_PANE") {
+		t.Error("opencode hook missing TMUX_PANE reference")
+	}
+	// Must pass workdir (cwd) to register.
+	if !strings.Contains(hook, "workdir") {
+		t.Error("opencode hook missing workdir argument to register")
+	}
+	// Must call update-status for status reporting.
+	if !strings.Contains(hook, "update-status") {
+		t.Error("opencode hook missing update-status call")
+	}
 }
 
 func TestGetUnknownAgent(t *testing.T) {

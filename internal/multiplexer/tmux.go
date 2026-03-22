@@ -142,3 +142,16 @@ func (t *Tmux) SendCommand(windowID string, command string) error {
 	}
 	return nil
 }
+
+func (t *Tmux) PaneInfo(paneID string) (windowID, panePID string, err error) {
+	cmd := exec.Command("tmux", "display-message", "-t", paneID, "-p", "#{window_id}\t#{pane_pid}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("getting pane info for %q: %s: %w", paneID, strings.TrimSpace(string(out)), err)
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected pane info output: %q", strings.TrimSpace(string(out)))
+	}
+	return parts[0], parts[1], nil
+}
