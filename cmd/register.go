@@ -23,6 +23,8 @@ Example (from a hook):
 		agentType, _ := cmd.Flags().GetString("agent-type")
 		windowID, _ := cmd.Flags().GetString("window-id")
 		panePID, _ := cmd.Flags().GetString("pane-pid")
+		windowIndex, _ := cmd.Flags().GetString("window-index")
+		windowName, _ := cmd.Flags().GetString("window-name")
 
 		if workdir == "" {
 			return fmt.Errorf("--workdir is required")
@@ -36,22 +38,24 @@ Example (from a hook):
 
 		// If window-id and pane-pid are given directly, skip the tmux lookup.
 		// This is used by tests and non-tmux environments.
-		windowName, _ := cmd.Flags().GetString("window-name")
 		if windowID == "" || panePID == "" {
 			// Fall back to resolving from the tmux pane ID.
 			if paneID == "" {
 				// Not inside tmux — silently do nothing.
 				return nil
 			}
-			var err error
-			windowID, panePID, windowName, err = mux.PaneInfo(paneID)
+			info, err := mux.PaneInfo(paneID)
 			if err != nil {
 				// Pane lookup failed (e.g. tmux not reachable) — silently do nothing.
 				return nil
 			}
+			windowID = info.WindowID
+			panePID = info.PanePID
+			windowIndex = info.WindowIndex
+			windowName = info.WindowName
 		}
 
-		return ctl.Adopt(windowID, panePID, windowName, workdir, agentType)
+		return ctl.Adopt(windowID, panePID, windowIndex, windowName, workdir, agentType)
 	},
 }
 
@@ -70,6 +74,7 @@ func init() {
 	registerCmd.Flags().String("agent-type", "", "coding agent type (e.g. opencode, pi)")
 	registerCmd.Flags().String("window-id", "", "tmux window ID — bypasses pane-id lookup (used for testing)")
 	registerCmd.Flags().String("pane-pid", "", "shell PID of the pane — bypasses pane-id lookup (used for testing)")
+	registerCmd.Flags().String("window-index", "", "tmux window index — used alongside window-id/pane-pid overrides")
 	registerCmd.Flags().String("window-name", "", "tmux window name — used alongside window-id/pane-pid overrides")
 	rootCmd.AddCommand(registerCmd)
 }

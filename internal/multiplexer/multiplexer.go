@@ -2,14 +2,25 @@ package multiplexer
 
 // Window represents a single window/pane in a terminal multiplexer.
 type Window struct {
-	// ID is the multiplexer-specific identifier for the window.
+	// ID is the multiplexer-specific identifier for the window (e.g. "@1").
 	ID string
+
+	// Index is the numeric index shown in the tmux status bar (e.g. "1").
+	Index string
 
 	// Name is the display name of the window.
 	Name string
 
 	// PanePID is the process ID of the shell running in the pane.
 	PanePID string
+}
+
+// PaneDetails holds the tmux metadata resolved from a pane ID.
+type PaneDetails struct {
+	WindowID    string
+	WindowIndex string
+	WindowName  string
+	PanePID     string
 }
 
 // Multiplexer is an abstraction over terminal multiplexers (tmux, zellij, etc.).
@@ -45,7 +56,7 @@ type Multiplexer interface {
 	// SelectWindow switches focus to the given window.
 	SelectWindow(windowID string) error
 
-	// PaneInfo resolves a tmux pane ID (e.g. "%3") to the window ID, shell
-	// PID, and window name. Used by the register command.
-	PaneInfo(paneID string) (windowID, panePID, windowName string, err error)
+	// PaneInfo resolves a tmux pane ID (e.g. "%3") to window metadata.
+	// Used by the register command.
+	PaneInfo(paneID string) (PaneDetails, error)
 }

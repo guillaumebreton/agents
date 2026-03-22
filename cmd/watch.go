@@ -3,8 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"notb.re/agents/internal/agent"
 	"notb.re/agents/internal/config"
 )
 
@@ -145,19 +148,18 @@ func tableStyles(width int) table.Styles {
 }
 
 func buildColumns(width int) []table.Column {
+	indexW := 4
 	agentTypeW := 12
 	statusW := 12
 	branchW := 18
-	fixed := agentTypeW + statusW + branchW
-	remaining := width - fixed - 10 // padding allowance
+	fixed := indexW + agentTypeW + statusW + branchW
+	remaining := width - fixed - 12 // padding allowance
 	remaining = max(remaining, 20)
-	windowW := remaining * 30 / 100
-	dirW := remaining - windowW
 
 	return []table.Column{
-		{Title: "Window", Width: windowW},
+		{Title: "#", Width: indexW},
 		{Title: "Agent", Width: agentTypeW},
-		{Title: "Workdir", Width: dirW},
+		{Title: "Repo", Width: remaining},
 		{Title: "Branch", Width: branchW},
 		{Title: "Status", Width: statusW},
 	}
@@ -170,13 +172,19 @@ func (m *watchModel) refreshRows() {
 		return
 	}
 
-	// Sort by window name first so agents in the same window are adjacent,
-	// then by agent name for a stable secondary order.
+	// Sort by window index numerically so rows appear in tmux status-bar order.
+	// Fall back to name comparison for agents without an index yet.
 	sort.Slice(agents, func(i, j int) bool {
-		wi := agents[i].WindowName
-		wj := agents[j].WindowName
-		if wi != wj {
-			return wi < wj
+		xi, erri := strconv.Atoi(agents[i].WindowIndex)
+		xj, errj := strconv.Atoi(agents[j].WindowIndex)
+		if erri == nil && errj == nil {
+			if xi != xj {
+				return xi < xj
+			}
+		} else if erri == nil {
+			return true
+		} else if errj == nil {
+			return false
 		}
 		return agents[i].Name < agents[j].Name
 	})
@@ -185,7 +193,7 @@ func (m *watchModel) refreshRows() {
 
 	rows := make([]table.Row, 0, len(agents))
 	names := make([]string, 0, len(agents))
-	prevWindow := "\x00" // sentinel so the first window always prints
+	prevWindowID := "\x00" // sentinel so the first window always prints
 	for _, a := range agents {
 		status := "○ stopped"
 		if a.WindowID != "" {
@@ -203,28 +211,37 @@ func (m *watchModel) refreshRows() {
 				default:
 					status = "● running"
 				}
+				// Fetch window index once (stable for the window's lifetime).
+				if a.WindowIndex == "" {
+					if idx := liveWindowIndex(a.WindowID); idx != "" {
+						a.WindowIndex = idx
+						dataStore.Save(a)
+					}
+				}
+				// Refresh branch on every tick — user may have switched branches.
+				if br := liveBranch(a.WorkdirPath); br != a.Branch {
+					a.Branch = br
+					dataStore.Save(a)
+				}
 			} else {
 				// Window is dead — clean up stale window state.
 				a.WindowID = ""
+				a.WindowIndex = ""
 				a.PanePID = ""
 				a.Status = "exited"
 				dataStore.Save(a)
 				status = "✕ exited"
 			}
 		}
-		// Show window name only for the first agent in each window group.
-		windowLabel := ""
-		win := a.WindowName
-		if win == "" {
-			win = a.WindowID
-		}
-		if win != prevWindow {
-			windowLabel = win
-			prevWindow = win
+		// Show the window index only for the first agent in each window group.
+		indexLabel := ""
+		if a.WindowID != prevWindowID {
+			indexLabel = a.WindowIndex
+			prevWindowID = a.WindowID
 		}
 
 		names = append(names, a.Name)
-		rows = append(rows, table.Row{windowLabel, a.AgentType, workdirLabel(a.WorkdirPath), a.Branch, status})
+		rows = append(rows, table.Row{indexLabel, a.AgentType, repoLabel(a), a.Branch, status})
 	}
 
 	m.agentNames = names
@@ -271,13 +288,28 @@ func (m *watchModel) notifyProgress(msg string) {
 //   - empty  → open the agent in the main checkout (KindMain)
 //   - filled → create / reuse a worktree on that branch (KindWorktree)
 func newAddForm(mode *string, repo *string, branch *string, dir *string) *huh.Form {
-	repos := listRepos()
-	opts := make([]huh.Option[string], len(repos))
-	for i, r := range repos {
-		opts[i] = huh.NewOption(r, r)
+	workspace, _ := config.Workspace()
+
+	dirs := listWorkspaceDirs()
+	opts := make([]huh.Option[string], len(dirs))
+	for i, d := range dirs {
+		label := "   " + d // plain directory — indented, no icon
+		if isMainGitRepo(filepath.Join(workspace, d)) {
+			label = "⎇  " + d // git repository
+		}
+		opts[i] = huh.NewOption(label, d)
 	}
 	if len(opts) == 0 {
-		opts = []huh.Option[string]{huh.NewOption("(no repos found)", "")}
+		opts = []huh.Option[string]{huh.NewOption("(no directories found)", "")}
+	}
+
+	// selectedIsGit reports whether the currently selected workspace entry is
+	// a main git repository. Used to show/hide the branch page.
+	selectedIsGit := func() bool {
+		if *repo == "" {
+			return false
+		}
+		return isMainGitRepo(filepath.Join(workspace, *repo))
 	}
 
 	return huh.NewForm(
@@ -287,22 +319,18 @@ func newAddForm(mode *string, repo *string, branch *string, dir *string) *huh.Fo
 				Title("Workdir source").
 				Description("Where should the agent work?").
 				Options(
-					huh.NewOption("Workspace repository", "repo"),
+					huh.NewOption("Workspace directory", "repo"),
 					huh.NewOption("Custom path", "path"),
 				).
 				Value(mode),
 		),
-		// Page 2a: workspace repo + optional branch (hidden when mode=path).
+		// Page 2a: workspace directory selector (hidden when mode=path).
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Repository").
-				Description("Select a repository from the workspace").
+				Title("Directory").
+				Description("⎇  = git repository   •   plain = regular directory").
 				Options(opts...).
 				Value(repo),
-			huh.NewInput().
-				Title("Branch (optional)").
-				Description("Leave empty to use the main checkout.\nEnter a branch name to create or reuse a git worktree.").
-				Value(branch),
 		).WithHideFunc(func() bool { return *mode != "repo" }),
 		// Page 2b: custom path input (hidden when mode=repo).
 		huh.NewGroup(
@@ -328,6 +356,13 @@ func newAddForm(mode *string, repo *string, branch *string, dir *string) *huh.Fo
 					return nil
 				}),
 		).WithHideFunc(func() bool { return *mode != "path" }),
+		// Page 3: branch input — only shown for git repositories.
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Branch (optional)").
+				Description("Empty = main checkout  •  filled = worktree").
+				Value(branch),
+		).WithHideFunc(func() bool { return *mode != "repo" || !selectedIsGit() }),
 	).WithTheme(huh.ThemeDracula())
 }
 
@@ -370,23 +405,30 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			var startCmd tea.Cmd
 			if mode == "repo" {
-				repo := *m.addRepo
-				if repo == "" {
+				selected := *m.addRepo
+				if selected == "" {
 					return m, tickCmd()
 				}
 				workspace, _ := config.Workspace()
-				repoPath := filepath.Join(workspace, repo)
+				dirPath := filepath.Join(workspace, selected)
 				branch := strings.TrimSpace(*m.addBranch)
 
-				if branch != "" {
-					// Branch provided → worktree mode.
-					startCmd = func() tea.Msg {
-						return agentStartedMsg{err: ctl.StartWorktree(repoPath, branch, agentType)}
+				if isMainGitRepo(dirPath) {
+					if branch != "" {
+						// Git repo + branch → worktree.
+						startCmd = func() tea.Msg {
+							return agentStartedMsg{err: ctl.StartWorktree(dirPath, branch, agentType)}
+						}
+					} else {
+						// Git repo, no branch → main checkout.
+						startCmd = func() tea.Msg {
+							return agentStartedMsg{err: ctl.StartMain(dirPath, "", agentType)}
+						}
 					}
 				} else {
-					// No branch → main checkout mode.
+					// Plain directory — branch input is ignored.
 					startCmd = func() tea.Msg {
-						return agentStartedMsg{err: ctl.StartMain(repoPath, "", agentType)}
+						return agentStartedMsg{err: ctl.Start("", dirPath, agentType)}
 					}
 				}
 			} else {
@@ -444,11 +486,22 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cursor := m.table.Cursor()
 				if cursor < len(m.agentNames) {
 					a, err := dataStore.Get(m.agentNames[cursor])
-					if err == nil && a.WindowID != "" {
+					if err != nil {
+						return m, nil
+					}
+					// If the window is alive, switch to it.
+					if a.WindowID != "" {
 						if alive, err := mux.WindowExists(a.WindowID); err == nil && alive {
 							mux.SelectWindow(a.WindowID)
+							return m, nil
 						}
 					}
+					// Window is dead or was never opened — reopen the agent.
+					notifCmd := m.notify("Reopening agent…", notifInfo)
+					startCmd := func() tea.Msg {
+						return agentStartedMsg{err: ctl.Reopen(a)}
+					}
+					return m, tea.Batch(notifCmd, startCmd, waitProgressCmd())
 				}
 			}
 			return m, nil
@@ -526,7 +579,7 @@ func (m watchModel) View() string {
 	helpText := lipgloss.NewStyle().
 		Foreground(colorDim).
 		Render(fmt.Sprintf(
-			"↑/↓ navigate • enter switch • s start • d remove • q quit • %d agent(s)",
+			"↑/↓ navigate • enter switch/reopen • s start • d remove • q quit • %d agent(s)",
 			agentCount,
 		))
 
@@ -645,21 +698,48 @@ func renderGradientTitle(text string, width int) string {
 	return lipgloss.NewStyle().MarginBottom(1).Render(b.String())
 }
 
-// workdirLabel returns a display-friendly label for a workdir path.
-// Paths inside the workspace are shown relative to it; others are shown as-is.
-func workdirLabel(workdirPath string) string {
-	workspace, err := config.Workspace()
-	if err != nil {
-		return workdirPath
+// repoLabel returns the repository or directory name to display in the table.
+// For git agents it uses the repo root basename; for plain directories it uses
+// the workdir basename.
+func repoLabel(a agent.Agent) string {
+	if a.RepoPath != "" {
+		return filepath.Base(a.RepoPath)
 	}
-	if rel, ok := strings.CutPrefix(workdirPath, workspace+"/"); ok {
-		return rel
-	}
-	return workdirPath
+	return filepath.Base(a.WorkdirPath)
 }
 
-// listRepos returns the names of git repositories found directly inside the workspace.
-func listRepos() []string {
+// liveWindowIndex queries tmux for the current numeric index of windowID.
+func liveWindowIndex(windowID string) string {
+	cmd := exec.Command("tmux", "display-message", "-t", windowID, "-p", "#{window_index}")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// liveBranch returns the current git branch for the given directory, or an
+// empty string if the directory is not a git repo or is in detached HEAD state.
+func liveBranch(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" {
+		return ""
+	}
+	return branch
+}
+
+// listWorkspaceDirs returns all directory names directly inside the workspace.
+// Both plain directories and git repositories are included.
+func listWorkspaceDirs() []string {
 	workspace, err := config.Workspace()
 	if err != nil {
 		return nil
@@ -668,22 +748,21 @@ func listRepos() []string {
 	if err != nil {
 		return nil
 	}
-	var repos []string
+	var dirs []string
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		// Accept only main git repositories (.git is a directory).
-		// Linked worktrees have .git as a file and are excluded — they are
-		// managed automatically when a branch is specified.
-		gitPath := filepath.Join(workspace, e.Name(), ".git")
-		info, err := os.Stat(gitPath)
-		if err == nil && info.IsDir() {
-			repos = append(repos, e.Name())
+		if e.IsDir() {
+			dirs = append(dirs, e.Name())
 		}
 	}
-	sort.Strings(repos)
-	return repos
+	sort.Strings(dirs)
+	return dirs
+}
+
+// isMainGitRepo reports whether dir is a main git repository
+// (i.e. contains a .git directory, not a .git file as linked worktrees do).
+func isMainGitRepo(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && info.IsDir()
 }
 
 func init() {

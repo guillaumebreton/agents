@@ -75,6 +75,10 @@ func TestPiHookContent(t *testing.T) {
 	if !strings.Contains(hook, "agent-type") {
 		t.Error("pi hook missing --agent-type in update-status call")
 	}
+	// agent_end should report "waiting" so the watcher notifies the user.
+	if !strings.Contains(hook, `"waiting"`) {
+		t.Error("pi hook missing waiting status for agent_end")
+	}
 	// Must pass TMUX_PANE for window resolution.
 	if !strings.Contains(hook, "TMUX_PANE") {
 		t.Error("pi hook missing TMUX_PANE reference")

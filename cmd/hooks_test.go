@@ -156,7 +156,7 @@ func TestHookRegisterAndUpdateStatus(t *testing.T) {
 	// 1. Hook calls register on session_start — updates PanePID and WindowName.
 	agents(t, env,
 		"register",
-		"--window-id", windowID,
+		"--window-id", windowID, "--window-index", "1",
 		"--window-name", "myrepo",
 		"--pane-pid", panePID,
 		"--workdir", workdir,

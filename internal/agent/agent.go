@@ -63,6 +63,10 @@ type Agent struct {
 	// Empty when the directory is not a git repository.
 	Branch string `json:"branch,omitempty"`
 
+	// WindowIndex is the numeric index of the tmux window (e.g. "1", "2").
+	// This is the number shown in the tmux status bar.
+	WindowIndex string `json:"window_index,omitempty"`
+
 	// WindowName is the display name of the tmux window that hosts this agent.
 	WindowName string `json:"window_name,omitempty"`
 

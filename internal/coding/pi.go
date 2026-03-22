@@ -70,7 +70,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (_event, _ctx) => {
-    await update("idle");
+    // agent_end fires when pi finishes its turn and is waiting for the next
+    // user message. Report "waiting" so the watcher can notify the user.
+    await update("waiting");
   });
 
   pi.on("session_shutdown", async (_event, _ctx) => {

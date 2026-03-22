@@ -173,10 +173,18 @@ func (c *Controller) startExisting(a agent.Agent) error {
 		}
 		// Window is gone — clear stale IDs and reopen.
 		a.WindowID = ""
+		a.WindowIndex = ""
 		a.WindowName = ""
 		a.PanePID = ""
 	}
 	return c.openWindowAndSave(a)
+}
+
+// Reopen creates a new tmux window and relaunches the agent for an entry that
+// is already in the store but whose window is no longer alive.
+// It is a no-op if the agent is still running.
+func (c *Controller) Reopen(a agent.Agent) error {
+	return c.startExisting(a)
 }
 
 func (c *Controller) openWindowAndSave(a agent.Agent) error {
@@ -196,6 +204,7 @@ func (c *Controller) openWindowAndSave(a agent.Agent) error {
 		return err
 	}
 	a.WindowID = win.ID
+	a.WindowIndex = win.Index
 	a.WindowName = win.Name
 	a.PanePID = win.PanePID
 
@@ -215,11 +224,14 @@ func (c *Controller) openWindowAndSave(a agent.Agent) error {
 // It only modifies entries that are already in the store (agents started
 // through this controller). Unrecognised window IDs are silently ignored so
 // that agents launched outside of agents never pollute the store.
-func (c *Controller) Adopt(windowID, panePID, windowName, workdir, agentType string) error {
+func (c *Controller) Adopt(windowID, panePID, windowIndex, windowName, workdir, agentType string) error {
 	existing, _ := c.Store.List()
 	for _, a := range existing {
 		if a.WindowID == windowID {
 			a.PanePID = panePID
+			if windowIndex != "" {
+				a.WindowIndex = windowIndex
+			}
 			if windowName != "" {
 				a.WindowName = windowName
 			}

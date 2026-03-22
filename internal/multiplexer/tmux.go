@@ -62,16 +62,19 @@ func (t *Tmux) CreateWindow(session string, name string, workdir string) (Window
 		"-t", session,
 		"-n", name,
 		"-c", workdir,
-		"-P", "-F", "#{window_id}\t#{pane_pid}",
+		"-P", "-F", "#{window_id}\t#{pane_pid}\t#{window_index}",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return Window{}, fmt.Errorf("creating window %q in session %q: %s: %w", name, session, strings.TrimSpace(string(out)), err)
 	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 3)
 	w := Window{ID: parts[0], Name: name}
-	if len(parts) == 2 {
+	if len(parts) >= 2 {
 		w.PanePID = parts[1]
+	}
+	if len(parts) >= 3 {
+		w.Index = parts[2]
 	}
 	return w, nil
 }
@@ -143,15 +146,21 @@ func (t *Tmux) SendCommand(windowID string, command string) error {
 	return nil
 }
 
-func (t *Tmux) PaneInfo(paneID string) (windowID, panePID, windowName string, err error) {
-	cmd := exec.Command("tmux", "display-message", "-t", paneID, "-p", "#{window_id}\t#{pane_pid}\t#{window_name}")
+func (t *Tmux) PaneInfo(paneID string) (PaneDetails, error) {
+	cmd := exec.Command("tmux", "display-message", "-t", paneID, "-p",
+		"#{window_id}\t#{pane_pid}\t#{window_name}\t#{window_index}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", "", "", fmt.Errorf("getting pane info for %q: %s: %w", paneID, strings.TrimSpace(string(out)), err)
+		return PaneDetails{}, fmt.Errorf("getting pane info for %q: %s: %w", paneID, strings.TrimSpace(string(out)), err)
 	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 3)
-	if len(parts) != 3 {
-		return "", "", "", fmt.Errorf("unexpected pane info output: %q", strings.TrimSpace(string(out)))
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 4)
+	if len(parts) != 4 {
+		return PaneDetails{}, fmt.Errorf("unexpected pane info output: %q", strings.TrimSpace(string(out)))
 	}
-	return parts[0], parts[1], parts[2], nil
+	return PaneDetails{
+		WindowID:    parts[0],
+		PanePID:     parts[1],
+		WindowName:  parts[2],
+		WindowIndex: parts[3],
+	}, nil
 }
