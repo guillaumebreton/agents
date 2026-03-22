@@ -114,6 +114,7 @@ type watchModel struct {
 	addForm     *huh.Form
 	addMode     *string // "repo" or "path"
 	addRepo     *string // heap-allocated so huh can write back through the pointer
+	addBranch   *string // optional branch; non-empty → worktree mode, empty → main mode
 	addDir      *string // heap-allocated so huh can write back through the pointer
 	notif       *notification
 }
@@ -146,18 +147,18 @@ func tableStyles(width int) table.Styles {
 func buildColumns(width int) []table.Column {
 	agentTypeW := 12
 	statusW := 12
-	gitW := 5
-	fixed := agentTypeW + statusW + gitW
+	branchW := 18
+	fixed := agentTypeW + statusW + branchW
 	remaining := width - fixed - 10 // padding allowance
 	remaining = max(remaining, 20)
-	nameW := remaining * 35 / 100
-	dirW := remaining - nameW
+	windowW := remaining * 30 / 100
+	dirW := remaining - windowW
 
 	return []table.Column{
-		{Title: "Name", Width: nameW},
+		{Title: "Window", Width: windowW},
 		{Title: "Agent", Width: agentTypeW},
 		{Title: "Workdir", Width: dirW},
-		{Title: "Git", Width: gitW},
+		{Title: "Branch", Width: branchW},
 		{Title: "Status", Width: statusW},
 	}
 }
@@ -169,8 +170,14 @@ func (m *watchModel) refreshRows() {
 		return
 	}
 
-	// Stable ordering by name.
+	// Sort by window name first so agents in the same window are adjacent,
+	// then by agent name for a stable secondary order.
 	sort.Slice(agents, func(i, j int) bool {
+		wi := agents[i].WindowName
+		wj := agents[j].WindowName
+		if wi != wj {
+			return wi < wj
+		}
 		return agents[i].Name < agents[j].Name
 	})
 
@@ -178,6 +185,7 @@ func (m *watchModel) refreshRows() {
 
 	rows := make([]table.Row, 0, len(agents))
 	names := make([]string, 0, len(agents))
+	prevWindow := "\x00" // sentinel so the first window always prints
 	for _, a := range agents {
 		status := "○ stopped"
 		if a.WindowID != "" {
@@ -204,12 +212,19 @@ func (m *watchModel) refreshRows() {
 				status = "✕ exited"
 			}
 		}
-		names = append(names, a.Name)
-		gitFlag := ""
-		if a.IsGitRepo {
-			gitFlag = "✓"
+		// Show window name only for the first agent in each window group.
+		windowLabel := ""
+		win := a.WindowName
+		if win == "" {
+			win = a.WindowID
 		}
-		rows = append(rows, table.Row{a.Name, a.AgentType, workdirLabel(a.WorkdirPath), gitFlag, status})
+		if win != prevWindow {
+			windowLabel = win
+			prevWindow = win
+		}
+
+		names = append(names, a.Name)
+		rows = append(rows, table.Row{windowLabel, a.AgentType, workdirLabel(a.WorkdirPath), a.Branch, status})
 	}
 
 	m.agentNames = names
@@ -252,7 +267,10 @@ func (m *watchModel) notifyProgress(msg string) {
 
 // newAddForm builds a fresh huh form for adding an agent.
 // mode must point to either "repo" (workspace repository) or "path" (custom directory).
-func newAddForm(mode *string, repo *string, dir *string) *huh.Form {
+// For "repo" mode, branch controls whether a git worktree is created:
+//   - empty  → open the agent in the main checkout (KindMain)
+//   - filled → create / reuse a worktree on that branch (KindWorktree)
+func newAddForm(mode *string, repo *string, branch *string, dir *string) *huh.Form {
 	repos := listRepos()
 	opts := make([]huh.Option[string], len(repos))
 	for i, r := range repos {
@@ -274,13 +292,17 @@ func newAddForm(mode *string, repo *string, dir *string) *huh.Form {
 				).
 				Value(mode),
 		),
-		// Page 2a: workspace repo selector (hidden when mode=path).
+		// Page 2a: workspace repo + optional branch (hidden when mode=path).
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Repository").
 				Description("Select a repository from the workspace").
 				Options(opts...).
 				Value(repo),
+			huh.NewInput().
+				Title("Branch (optional)").
+				Description("Leave empty to use the main checkout.\nEnter a branch name to create or reuse a git worktree.").
+				Value(branch),
 		).WithHideFunc(func() bool { return *mode != "repo" }),
 		// Page 2b: custom path input (hidden when mode=repo).
 		huh.NewGroup(
@@ -344,27 +366,39 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.Focus()
 
 			agentType := config.DefaultAgentName()
-			var name, dir string
+			notifCmd := m.notify("Starting agent…", notifInfo)
+
+			var startCmd tea.Cmd
 			if mode == "repo" {
 				repo := *m.addRepo
 				if repo == "" {
 					return m, tickCmd()
 				}
 				workspace, _ := config.Workspace()
-				name = repo
-				dir = filepath.Join(workspace, repo)
+				repoPath := filepath.Join(workspace, repo)
+				branch := strings.TrimSpace(*m.addBranch)
+
+				if branch != "" {
+					// Branch provided → worktree mode.
+					startCmd = func() tea.Msg {
+						return agentStartedMsg{err: ctl.StartWorktree(repoPath, branch, agentType)}
+					}
+				} else {
+					// No branch → main checkout mode.
+					startCmd = func() tea.Msg {
+						return agentStartedMsg{err: ctl.StartMain(repoPath, "", agentType)}
+					}
+				}
 			} else {
-				dir = expandTilde(strings.TrimSpace(*m.addDir))
+				dir := expandTilde(strings.TrimSpace(*m.addDir))
 				if dir == "" {
 					return m, tickCmd()
 				}
-				// name left empty — Start derives it from the directory basename.
+				startCmd = func() tea.Msg {
+					return agentStartedMsg{err: ctl.Start("", dir, agentType)}
+				}
 			}
 
-			notifCmd := m.notify("Starting agent…", notifInfo)
-			startCmd := func() tea.Msg {
-				return agentStartedMsg{err: ctl.Start(name, dir, agentType)}
-			}
 			return m, tea.Batch(tickCmd(), notifCmd, startCmd, waitProgressCmd())
 		}
 		if m.addForm.State == huh.StateAborted {
@@ -430,11 +464,13 @@ func (m watchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			mode := "repo"
 			repo := ""
+			branch := ""
 			dir := ""
 			m.addMode = &mode
 			m.addRepo = &repo
+			m.addBranch = &branch
 			m.addDir = &dir
-			m.addForm = newAddForm(m.addMode, m.addRepo, m.addDir)
+			m.addForm = newAddForm(m.addMode, m.addRepo, m.addBranch, m.addDir)
 			m.adding = true
 			m.table.Blur()
 			return m, m.addForm.Init()
@@ -637,9 +673,12 @@ func listRepos() []string {
 		if !e.IsDir() {
 			continue
 		}
-		// Accept only directories that contain a .git entry.
+		// Accept only main git repositories (.git is a directory).
+		// Linked worktrees have .git as a file and are excluded — they are
+		// managed automatically when a branch is specified.
 		gitPath := filepath.Join(workspace, e.Name(), ".git")
-		if _, err := os.Stat(gitPath); err == nil {
+		info, err := os.Stat(gitPath)
+		if err == nil && info.IsDir() {
 			repos = append(repos, e.Name())
 		}
 	}

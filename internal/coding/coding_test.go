@@ -71,6 +71,10 @@ func TestPiHookContent(t *testing.T) {
 	if !strings.Contains(hook, `"register"`) {
 		t.Error("pi hook missing register call")
 	}
+	// Must pass agent-type in update-status so the watcher stays in sync.
+	if !strings.Contains(hook, "agent-type") {
+		t.Error("pi hook missing --agent-type in update-status call")
+	}
 	// Must pass TMUX_PANE for window resolution.
 	if !strings.Contains(hook, "TMUX_PANE") {
 		t.Error("pi hook missing TMUX_PANE reference")
@@ -111,6 +115,10 @@ func TestOpenCodeHookContent(t *testing.T) {
 	// Must call update-status for status reporting.
 	if !strings.Contains(hook, "update-status") {
 		t.Error("opencode hook missing update-status call")
+	}
+	// Must pass agent-type in update-status so the watcher stays in sync.
+	if !strings.Contains(hook, "agent-type") {
+		t.Error("opencode hook missing --agent-type in update-status call")
 	}
 }
 

@@ -19,23 +19,52 @@ func ValidStatus(s string) bool {
 	return false
 }
 
+// Kind describes how the agent's working directory was set up.
+type Kind string
+
+const (
+	// KindWorktree means the agent is running in a git worktree created by
+	// agents. Removal will run "git worktree remove" before closing the window.
+	KindWorktree Kind = "worktree"
+
+	// KindMain means the agent is running in the main checkout of a git
+	// repository. Removal closes the window but leaves the repo untouched.
+	KindMain Kind = "main"
+
+	// KindPlain means the agent is running in a plain directory with no git
+	// worktree management. Removal only closes the window.
+	KindPlain Kind = "plain"
+)
+
 // Agent represents a coding agent tied to a working directory and a
 // terminal multiplexer window.
 type Agent struct {
 	// Name is a human-friendly identifier for the agent.
 	Name string `json:"name"`
 
+	// Kind describes how the working directory was set up.
+	Kind Kind `json:"kind,omitempty"`
+
 	// WorkdirPath is the absolute path to the directory the agent works in.
 	// The JSON key is kept as "worktree_path" for backward compatibility with
 	// existing state files.
 	WorkdirPath string `json:"worktree_path"`
 
+	// RepoPath is the absolute path to the git repository root.
+	// For KindWorktree it is the main repo (parent of the worktree).
+	// For KindMain it equals WorkdirPath.
+	// Empty for KindPlain.
+	RepoPath string `json:"repo_path,omitempty"`
+
 	// AgentType is the shorthand name of the coding agent (e.g. "opencode").
 	AgentType string `json:"agent_type"`
 
-	// IsGitRepo records whether WorkdirPath was detected as a git repository
-	// at agent-creation time.
-	IsGitRepo bool `json:"is_git_repo,omitempty"`
+	// Branch is the git branch the agent is working on.
+	// Empty when the directory is not a git repository.
+	Branch string `json:"branch,omitempty"`
+
+	// WindowName is the display name of the tmux window that hosts this agent.
+	WindowName string `json:"window_name,omitempty"`
 
 	// Status is the last reported status of the coding agent.
 	Status Status `json:"status,omitempty"`

@@ -61,7 +61,24 @@ func testEnv(t *testing.T) (configFile, stateFile string, env []string) {
 	return
 }
 
-// agents runs the test binary with the given args and env, failing the test on
+// seedState writes one or more agents directly into the state file, simulating
+// entries that were created by the controller (e.g. via StartWorktree / StartMain).
+func seedState(t *testing.T, stateFile string, agents ...agent.Agent) {
+	t.Helper()
+	m := make(map[string]agent.Agent, len(agents))
+	for _, a := range agents {
+		m[a.Name] = a
+	}
+	data, err := json.MarshalIndent(map[string]any{"agents": m}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshalling seed state: %v", err)
+	}
+	if err := os.WriteFile(stateFile, data, 0o644); err != nil {
+		t.Fatalf("writing seed state: %v", err)
+	}
+}
+
+// run runs the test binary with the given args and env, failing the test on
 // any non-zero exit.
 func agents(t *testing.T, env []string, args ...string) {
 	t.Helper()
@@ -104,56 +121,78 @@ func findByPanePID(agents map[string]agent.Agent, panePID string) (agent.Agent, 
 	return agent.Agent{}, false
 }
 
+// findByWindowID returns the first agent whose WindowID matches.
+func findByWindowID(agents map[string]agent.Agent, windowID string) (agent.Agent, bool) {
+	for _, a := range agents {
+		if a.WindowID == windowID {
+			return a, true
+		}
+	}
+	return agent.Agent{}, false
+}
+
 // TestHookRegisterAndUpdateStatus is the primary integration test.
 // It replays the exact sequence a coding agent hook executes:
-//  1. register  — called on session_start / AgentsPlugin init
-//  2. update-status working — called when the agent starts processing
-//  3. update-status idle    — called when the agent finishes
+//  1. controller creates the agent entry (simulated via seedState)
+//  2. register — called by hook on session_start; updates PanePID / WindowName
+//  3. update-status working — called when the agent starts processing
+//  4. update-status idle    — called when the agent finishes
 func TestHookRegisterAndUpdateStatus(t *testing.T) {
 	_, stateFile, env := testEnv(t)
 	workdir := t.TempDir()
 	const panePID = "88001"
 	const windowID = "@1"
 
-	// 1. register (hook: session_start)
+	// Simulate the controller having started the agent and saved an entry.
+	seedState(t, stateFile, agent.Agent{
+		Name:        "myrepo",
+		Kind:        agent.KindMain,
+		WorkdirPath: workdir,
+		RepoPath:    workdir,
+		AgentType:   "opencode",
+		WindowID:    windowID,
+	})
+
+	// 1. Hook calls register on session_start — updates PanePID and WindowName.
 	agents(t, env,
 		"register",
 		"--window-id", windowID,
+		"--window-name", "myrepo",
 		"--pane-pid", panePID,
 		"--workdir", workdir,
 		"--agent-type", "opencode",
 	)
 
 	state := readState(t, stateFile)
-	a, ok := findByPanePID(state, panePID)
+	a, ok := findByWindowID(state, windowID)
 	if !ok {
-		t.Fatalf("agent with pane-pid %q not found after register\nstate: %+v", panePID, state)
+		t.Fatalf("agent with window-id %q not found after register\nstate: %+v", windowID, state)
+	}
+	if a.PanePID != panePID {
+		t.Errorf("pane PID: want %q, got %q", panePID, a.PanePID)
+	}
+	if a.WindowName != "myrepo" {
+		t.Errorf("window name: want %q, got %q", "myrepo", a.WindowName)
 	}
 	if a.AgentType != "opencode" {
 		t.Errorf("agent type: want %q, got %q", "opencode", a.AgentType)
 	}
-	if a.WindowID != windowID {
-		t.Errorf("window ID: want %q, got %q", windowID, a.WindowID)
-	}
-	if a.WorkdirPath != workdir {
-		t.Errorf("workdir: want %q, got %q", workdir, a.WorkdirPath)
-	}
-	t.Logf("registered agent %q", a.Name)
+	t.Logf("register updated agent %q (pane-pid=%s)", a.Name, a.PanePID)
 
 	// 2. update-status working (hook: agent_start / message.updated)
-	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "working")
+	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "working", "--agent-type", "opencode")
 
 	state = readState(t, stateFile)
-	a, _ = findByPanePID(state, panePID)
+	a, _ = findByWindowID(state, windowID)
 	if a.Status != "working" {
 		t.Errorf("status after working update: want %q, got %q", "working", a.Status)
 	}
 
 	// 3. update-status idle (hook: agent_end / session.idle)
-	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "idle")
+	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "idle", "--agent-type", "opencode")
 
 	state = readState(t, stateFile)
-	a, _ = findByPanePID(state, panePID)
+	a, _ = findByWindowID(state, windowID)
 	if a.Status != "idle" {
 		t.Errorf("status after idle update: want %q, got %q", "idle", a.Status)
 	}
@@ -163,19 +202,26 @@ func TestHookRegisterAndUpdateStatus(t *testing.T) {
 func TestHookPiFlow(t *testing.T) {
 	_, stateFile, env := testEnv(t)
 	const panePID = "88002"
+	const windowID = "@2"
+	workdir := t.TempDir()
 
-	agents(t, env,
-		"register",
-		"--window-id", "@2",
-		"--pane-pid", panePID,
-		"--workdir", t.TempDir(),
-		"--agent-type", "pi",
-	)
-	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "working")
-	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "idle")
+	seedState(t, stateFile, agent.Agent{
+		Name:        "proj/main",
+		Kind:        agent.KindMain,
+		WorkdirPath: workdir,
+		RepoPath:    workdir,
+		AgentType:   "pi",
+		WindowID:    windowID,
+	})
+
+	agents(t, env, "register",
+		"--window-id", windowID, "--window-name", "proj",
+		"--pane-pid", panePID, "--workdir", workdir, "--agent-type", "pi")
+	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "working", "--agent-type", "pi")
+	agents(t, env, "update-status", "--pane-pid", panePID, "--status", "idle", "--agent-type", "pi")
 
 	state := readState(t, stateFile)
-	a, ok := findByPanePID(state, panePID)
+	a, ok := findByWindowID(state, windowID)
 	if !ok {
 		t.Fatal("pi agent not found after register")
 	}
@@ -187,36 +233,62 @@ func TestHookPiFlow(t *testing.T) {
 	}
 }
 
-// TestHookRegisterIdempotent verifies that calling register twice for the same
-// window is a no-op and does not create a duplicate entry.
+// TestHookRegisterIdempotent verifies that calling register multiple times for
+// the same window updates the entry but does not create duplicates.
 func TestHookRegisterIdempotent(t *testing.T) {
 	_, stateFile, env := testEnv(t)
 	workdir := t.TempDir()
+	const windowID = "@5"
+
+	seedState(t, stateFile, agent.Agent{
+		Name:        "myrepo",
+		Kind:        agent.KindMain,
+		WorkdirPath: workdir,
+		RepoPath:    workdir,
+		AgentType:   "opencode",
+		WindowID:    windowID,
+	})
 
 	for i := 0; i < 3; i++ {
-		agents(t, env,
-			"register",
-			"--window-id", "@5",
-			"--pane-pid", "88003",
-			"--workdir", workdir,
-			"--agent-type", "opencode",
-		)
+		agents(t, env, "register",
+			"--window-id", windowID, "--window-name", "myrepo",
+			"--pane-pid", fmt.Sprintf("8800%d", i),
+			"--workdir", workdir, "--agent-type", "opencode")
 	}
 
 	state := readState(t, stateFile)
 	count := 0
 	for _, a := range state {
-		if a.WindowID == "@5" {
+		if a.WindowID == windowID {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Errorf("expected exactly 1 agent for window @5, got %d", count)
+		t.Errorf("expected exactly 1 agent for window %s, got %d", windowID, count)
+	}
+}
+
+// TestHookRegisterIgnoresUnknownWindow verifies that register for a window not
+// in the store does nothing — agents started outside the tool are not adopted.
+func TestHookRegisterIgnoresUnknownWindow(t *testing.T) {
+	_, stateFile, env := testEnv(t)
+
+	agents(t, env, "register",
+		"--window-id", "@99",
+		"--window-name", "stranger",
+		"--pane-pid", "55555",
+		"--workdir", t.TempDir(),
+		"--agent-type", "opencode",
+	)
+
+	state := readState(t, stateFile)
+	if len(state) != 0 {
+		t.Errorf("expected store to remain empty for unknown window, got %d agents", len(state))
 	}
 }
 
 // TestHookRegisterOutsideTmux verifies that register with no pane info exits
-// cleanly and stores nothing — matching the hook's behaviour outside tmux.
+// cleanly — matching the hook's behaviour when not running inside tmux.
 func TestHookRegisterOutsideTmux(t *testing.T) {
 	_, stateFile, env := testEnv(t)
 
@@ -229,28 +301,52 @@ func TestHookRegisterOutsideTmux(t *testing.T) {
 }
 
 // TestHookUpdateStatusBeforeRegister verifies that update-status for an
-// unknown pane PID exits cleanly. This can happen if the hook fires before
-// register completes (e.g. a race on startup).
+// unknown pane PID exits cleanly (race on startup or unmanaged agent).
 func TestHookUpdateStatusBeforeRegister(t *testing.T) {
 	_, _, env := testEnv(t)
 	agents(t, env, "update-status", "--pane-pid", "00000", "--status", "idle")
 }
 
-// TestHookMultipleAgentsSameWindow verifies that two separate register calls
-// for different pane PIDs but the same workdir basename get distinct names.
-func TestHookMultipleAgentsSameWorkdir(t *testing.T) {
+// TestHookAgentTypeUpdatedOnRestart verifies that if the same window restarts
+// with a different agent, register updates the stored agent type immediately.
+func TestHookAgentTypeUpdatedOnRestart(t *testing.T) {
 	_, stateFile, env := testEnv(t)
+	workdir := t.TempDir()
+	const windowID = "@99"
+	const panePID = "88099"
 
-	// Both agents share the same workdir basename.
-	dir1 := t.TempDir()
-	dir2 := filepath.Join(filepath.Dir(dir1), filepath.Base(dir1)+"-2")
-	os.MkdirAll(dir2, 0o755)
+	// Seed with opencode.
+	seedState(t, stateFile, agent.Agent{
+		Name:        "myrepo",
+		Kind:        agent.KindMain,
+		WorkdirPath: workdir,
+		RepoPath:    workdir,
+		AgentType:   "opencode",
+		WindowID:    windowID,
+	})
 
-	agents(t, env, "register", "--window-id", "@10", "--pane-pid", "88010", "--workdir", dir1, "--agent-type", "opencode")
-	agents(t, env, "register", "--window-id", "@11", "--pane-pid", "88011", "--workdir", dir1, "--agent-type", "opencode")
+	// Confirm opencode.
+	agents(t, env, "register",
+		"--window-id", windowID, "--window-name", "myrepo",
+		"--pane-pid", panePID, "--workdir", workdir, "--agent-type", "opencode")
 
 	state := readState(t, stateFile)
-	if len(state) != 2 {
-		t.Errorf("expected 2 agents, got %d: %+v", len(state), state)
+	a, _ := findByWindowID(state, windowID)
+	if a.AgentType != "opencode" {
+		t.Fatalf("expected opencode, got %q", a.AgentType)
+	}
+
+	// User switches to pi in the same window.
+	agents(t, env, "register",
+		"--window-id", windowID, "--window-name", "myrepo",
+		"--pane-pid", panePID, "--workdir", workdir, "--agent-type", "pi")
+
+	state = readState(t, stateFile)
+	a, _ = findByWindowID(state, windowID)
+	if a.AgentType != "pi" {
+		t.Errorf("expected pi after switch, got %q", a.AgentType)
+	}
+	if len(state) != 1 {
+		t.Errorf("expected 1 agent after switch, got %d", len(state))
 	}
 }

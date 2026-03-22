@@ -46,7 +46,7 @@ export const AgentsPlugin = async ({ worktree, $ }) => {
     if (status === lastStatus) return;
     lastStatus = status;
     try {
-      await $`+"`"+`${agents} update-status --pane-pid ${panePid} --status ${status}`+"`"+`;
+      await $`+"`"+`${agents} update-status --pane-pid ${panePid} --status ${status} --agent-type opencode`+"`"+`;
     } catch (e) {
       // Silently ignore — agents might not be running.
     }

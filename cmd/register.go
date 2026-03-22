@@ -36,6 +36,7 @@ Example (from a hook):
 
 		// If window-id and pane-pid are given directly, skip the tmux lookup.
 		// This is used by tests and non-tmux environments.
+		windowName, _ := cmd.Flags().GetString("window-name")
 		if windowID == "" || panePID == "" {
 			// Fall back to resolving from the tmux pane ID.
 			if paneID == "" {
@@ -43,14 +44,14 @@ Example (from a hook):
 				return nil
 			}
 			var err error
-			windowID, panePID, err = mux.PaneInfo(paneID)
+			windowID, panePID, windowName, err = mux.PaneInfo(paneID)
 			if err != nil {
 				// Pane lookup failed (e.g. tmux not reachable) — silently do nothing.
 				return nil
 			}
 		}
 
-		return ctl.Adopt(windowID, panePID, workdir, agentType)
+		return ctl.Adopt(windowID, panePID, windowName, workdir, agentType)
 	},
 }
 
@@ -69,5 +70,6 @@ func init() {
 	registerCmd.Flags().String("agent-type", "", "coding agent type (e.g. opencode, pi)")
 	registerCmd.Flags().String("window-id", "", "tmux window ID — bypasses pane-id lookup (used for testing)")
 	registerCmd.Flags().String("pane-pid", "", "shell PID of the pane — bypasses pane-id lookup (used for testing)")
+	registerCmd.Flags().String("window-name", "", "tmux window name — used alongside window-id/pane-pid overrides")
 	rootCmd.AddCommand(registerCmd)
 }

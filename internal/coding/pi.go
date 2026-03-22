@@ -49,7 +49,7 @@ export default function (pi: ExtensionAPI) {
     if (status === lastStatus) return;
     lastStatus = status;
     try {
-      await pi.exec(agents, ["update-status", "--pane-pid", panePid, "--status", status]);
+      await pi.exec(agents, ["update-status", "--pane-pid", panePid, "--status", status, "--agent-type", "pi"]);
     } catch {
       // Silently ignore — agents might not be running.
     }

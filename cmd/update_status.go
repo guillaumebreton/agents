@@ -20,6 +20,7 @@ Valid statuses: idle, working, waiting, exited`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		panePID, _ := cmd.Flags().GetString("pane-pid")
 		status, _ := cmd.Flags().GetString("status")
+		agentType, _ := cmd.Flags().GetString("agent-type")
 
 		if panePID == "" {
 			return fmt.Errorf("--pane-pid is required")
@@ -34,13 +35,15 @@ Valid statuses: idle, working, waiting, exited`,
 		a, err := dataStore.GetByPanePID(panePID)
 		if err != nil {
 			// Silently exit when no tracked agent matches this pane PID.
-			// This happens when opencode runs outside a managed worktree
-			// (e.g. directly in a repo, not via "agents start").
 			return nil
 		}
 
 		oldStatus := a.Status
 		a.Status = agent.Status(status)
+		// Keep the agent type up to date in case the agent was restarted.
+		if agentType != "" {
+			a.AgentType = agentType
+		}
 		if err := dataStore.Save(a); err != nil {
 			return err
 		}
@@ -62,5 +65,6 @@ Valid statuses: idle, working, waiting, exited`,
 func init() {
 	updateStatusCmd.Flags().String("pane-pid", "", "pane PID of the agent")
 	updateStatusCmd.Flags().String("status", "", "new status (idle, working, waiting, exited)")
+	updateStatusCmd.Flags().String("agent-type", "", "coding agent type (e.g. opencode, pi); kept in sync on each call")
 	rootCmd.AddCommand(updateStatusCmd)
 }
